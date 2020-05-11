@@ -1,0 +1,43 @@
+3rd quest messages
+2-0: Everything seems peaceful, but the Assassin is watching...
+0-2: Darkness has
+1-1: 
+
+4th quest messages
+1-2: The situation looks dire, but a glimmer of hope remains...
+2-1:
+
+5th quest messages
+2-2 (after fail): Et tu, Brute?
+
+
+
+
+'The only good is knowledge, and the only evil is ignorance.'
+
+'Man is not what he thinks he is, he is what he hides.'
+
+'Never attempt to win by force what can be won by deception.'
+
+'The only thing necessary for the triumph of evil is for good men to do nothing.'
+
+'Silence in the face of evil is itself evil.'
+
+'Do not be overcome by evil, but overcome evil with good.'
+
+'Lies are like cockroaches, for every one you discover there are many more that are hidden.'
+
+'The truest way to be deceived is to think oneself more knowing than others.'
+
+'It is more shameful to distrust our friends than to be deceived by them.'
+
+'Do not be overcome by evil, but overcome evil with good.'
+
+'The devil's finest trick is to persuade you that he does not exist.'
+
+
+Goodness prevails!
+Evil triumphs!
+
+if time > x:
+For King Arthur's sake, pick a fucking team already!
