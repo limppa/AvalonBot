@@ -19,6 +19,7 @@ bg = pg.image.load("castle_wall.jpg")
 
 welcometoavalon = pg.image.load("welcometoavalon.png")
 howmanyplayers = pg.image.load("howmanyplayers.png")
+verticalscroll = pg.image.load("verticalscroll.png")
 left_scroll = pg.image.load("left_scroll100.png")
 right_scroll = pg.image.load("right_scroll100.png")
 pointer = pg.image.load("location 43.png")
@@ -126,11 +127,6 @@ def welcome_screen():
     insideboxheight = 145
     wipe_board()  # this repaints the inner rectangle which makes the antialiasing look better
     pg.draw.rect(bg, lightWood, (resx // 2 - linewidth // 2, resy // 2.55, linewidth, 2))  # line
-    pg.draw.rect(bg, darkWood, (resx / 2 - outsideboxwidth // 2, resy // 3 * 2 - outsideboxheight // 2,
-                                outsideboxwidth, outsideboxheight))  # outside box
-    pg.draw.rect(bg, lightWood,
-                 (resx / 2 - outsideboxwidth // 2 + (outsideboxwidth - insideboxwidth) // 2,  # inside box
-                  resy // 3 * 2 - outsideboxheight // 2 + (outsideboxheight - insideboxheight) // 2, 120, 145))
 
     pg.gfxdraw.aacircle(bg, resx // 12 * 5, resy // 3 * 2, 10, lightWood)  # these are the decorative dots
     pg.gfxdraw.filled_circle(bg, resx // 12 * 5, resy // 3 * 2, 10, lightWood)
@@ -155,8 +151,16 @@ def welcome_screen():
     textpos = text.get_rect(center=(resx // 2, resy // 1.95))
     bg.blit(howmanyplayers, textpos)
 
+
+    scrollw = verticalscroll.get_rect().width
+    scrollh = verticalscroll.get_rect().height
+    scrollposx = resx / 2 - scrollw / 2
+    scrollposy = resy // 3 * 2 - scrollh / 2  
+    bg.blit(verticalscroll, (scrollposx, scrollposy))   
+
+
     font = pg.font.Font('Enchanted Land.otf', 180)
-    text = font.render(str(player_amount), 1, darkWood)
+    text = font.render(str(player_amount), 1, lightWood)
     textpos = text.get_rect(center=(resx // 2, resy // 3 * 2))
     bg.blit(text, textpos)
 
