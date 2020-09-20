@@ -87,13 +87,11 @@ def welcome_screen():
     textpos = text.get_rect(center=(resx // 2, resy // 1.95))
     bg.blit(howmanyplayers, textpos)
 
-
     scrollw = verticalscroll.get_rect().width
     scrollh = verticalscroll.get_rect().height
     scrollposx = resx / 2 - scrollw / 2
-    scrollposy = resy // 3 * 2 - scrollh / 2  
-    bg.blit(verticalscroll, (scrollposx, scrollposy))   
-
+    scrollposy = resy // 3 * 2 - scrollh / 2
+    bg.blit(verticalscroll, (scrollposx, scrollposy))
 
     font = pg.font.Font('Enchanted Land.otf', 180)
     text = font.render(str(player_amount), 1, lightWood)
@@ -132,13 +130,16 @@ def quest_bg(players):
         text = font.render(str(players[qcircle]), 1, darkGray)  # Q1 player amount
         textpos = text.get_rect(center=(qx_pos[qcircle], qy_b))
         bg.blit(text, textpos)
-        pg.gfxdraw.filled_circle(bg, qx_pos[qcircle] + timerCircleOffset, qy2, timerCircleR, lightGray)  # small circle Q1
-        pg.gfxdraw.aacircle(bg, qx_pos[qcircle] + timerCircleOffset, qy2, timerCircleR, lightGray)
+        pg.gfxdraw.filled_circle(bg, qx_pos[qcircle] + timerCircleOffset,
+                                 qy2, timerCircleR, lightGray)
+        pg.gfxdraw.aacircle(bg, qx_pos[qcircle] + timerCircleOffset,
+                            qy2, timerCircleR, lightGray)
 
     draw_vote()
 
     screen.blit(bg, (0, 0))
     pg.display.flip()
+
 
 def draw_vote():
     # Draw voting circles
@@ -149,6 +150,7 @@ def draw_vote():
         text = font.render(str(vcircle+1), 1, darkGray)
         textpos = text.get_rect(center=(vote_pos[vcircle], qy_v))
         bg.blit(text, textpos)
+
 
 def highlight_quest(qx, players):
 
@@ -165,8 +167,8 @@ def highlight_quest(qx, players):
 
 
 def marker(qx, qy, mark, radius):
-    pg.gfxdraw.aacircle(bg, qx, qy, radius, (mark))
-    pg.gfxdraw.filled_circle(bg, qx, qy, radius, (mark))
+    pg.gfxdraw.aacircle(bg, qx, qy, radius, mark)
+    pg.gfxdraw.filled_circle(bg, qx, qy, radius, mark)
     screen.blit(bg, (0, 0))
     pg.display.flip()
 
@@ -197,7 +199,8 @@ def clear_pointers():
     pointerh = pointer.get_rect().height  # 71
 
     for position in range(0, 5):
-        pg.draw.rect(bg, darkGray, [int(qx_pos[position] - pointerw/2), int(qy_b - 1.9 * questCircleR), pointerw, pointerh])
+        pg.draw.rect(bg, darkGray, [int(qx_pos[position] - pointerw/2),
+                                    int(qy_b - 1.9 * questCircleR), pointerw, pointerh])
 
     screen.blit(bg, (0, 0))
     pg.display.flip()
@@ -228,11 +231,11 @@ def quest_stamp(qx):
         display_score()
         quest_count += 1
 
+
 def vote_stamp(qx):
     global vote_count
-    if event.key == pg.K_f:
-        marker(qx, qy_v, redMark, timerCircleR)
-        vote_count += 1
+    marker(qx, qy_v, redMark, timerCircleR)
+    vote_count += 1
 
 
 def clocks_increase():
@@ -287,12 +290,12 @@ def quest_timer(qx):
     pg.gfxdraw.filled_circle(bg, qx + timerCircleOffset, qy2, int(timerCircleR - 0.07 * timerCircleR), lightGray)
     pg.gfxdraw.aacircle(bg, qx + timerCircleOffset, qy2, int(timerCircleR - 0.07 * timerCircleR), lightGray)
     # QuestMinutes
-    minutestext = font.render("{0:02}".format(QuestMinutes), 1, (darkestGray))  # zero-pad Minutes to 2 digits
+    minutestext = font.render("{0:02}".format(QuestMinutes), 1, darkestGray)  # zero-pad Minutes to 2 digits
     minutestextrect = minutestext.get_rect()
     minutestextrect.center = (qx + timerCircleOffset - 18, qy2)
     bg.blit(minutestext, minutestextrect)
     # QuestSeconds
-    secondstext = font.render(":{0:02}".format(QuestSeconds), 1, (darkestGray))
+    secondstext = font.render(":{0:02}".format(QuestSeconds), 1, darkestGray)
     secondstextrect = secondstext.get_rect()
     secondstextrect.center = (qx + timerCircleOffset + 15, qy2)
     bg.blit(secondstext, secondstextrect)
@@ -309,12 +312,12 @@ def freeze_quest_timer(qx):
     pg.gfxdraw.filled_circle(bg, qx + timerCircleOffset, qy2, int(timerCircleR - 0.1 * timerCircleR), lightGray)
     pg.gfxdraw.aacircle(bg, qx + timerCircleOffset, qy2, int(timerCircleR - 0.1 * timerCircleR), lightGray)
     # QuestMinutes
-    minutestext = font.render("{0:02}".format(QuestMinutes), 1, (darkerGray))  # zero-pad Minutes to 2 digits
+    minutestext = font.render("{0:02}".format(QuestMinutes), 1, darkerGray)  # zero-pad Minutes to 2 digits
     minutestextrect = minutestext.get_rect()
     minutestextrect.center = (qx + timerCircleOffset - 18, qy2)
     bg.blit(minutestext, minutestextrect)
     # QuestSeconds
-    secondstext = font.render(":{0:02}".format(QuestSeconds), 1, (darkerGray))
+    secondstext = font.render(":{0:02}".format(QuestSeconds), 1, darkerGray)
     secondstextrect = secondstext.get_rect()
     secondstextrect.center = (qx + timerCircleOffset + 15, qy2)
     bg.blit(secondstext, secondstextrect)
@@ -326,7 +329,7 @@ def freeze_quest_timer(qx):
 
 def player_box():
     displayh = int(1.4 * questCircleR)  # if changing value, check assassination function
-    displayw = int(((game_boardH / goldenratio))/2)    # if changing value, check assassination function
+    displayw = int((game_boardH / goldenratio)/2)    # if changing value, check assassination function
     displayw2 = int(displayw - 0.5 * timerCircleR)
     displayh2 = int(displayh - 0.5 * timerCircleR)
 
@@ -382,17 +385,17 @@ def tfr_curved_text():
 def display_score():
     boxw = 250
     boxh = 125
-    pg.draw.rect(bg, (darkGray), [int(resx / 12 - boxw / 2), int(resy / 12 * 11 - boxh / 2), boxw, boxh])
+    pg.draw.rect(bg, darkGray, [int(resx / 12 - boxw / 2), int(resy / 12 * 11 - boxh / 2), boxw, boxh])
     font = pg.font.SysFont("Calibri", 110)
-    text = font.render('-', 1, (lightestGray))  # mellanstreck
+    text = font.render('-', 1, lightestGray)  # mellanstreck
     textpos = text.get_rect(center=(resx // 12, resy // 12 * 11))
     bg.blit(text, textpos)
     font = pg.font.SysFont("Calibri", 110)
-    text = font.render(str(success_count), 1, (blueMark))  # good points
+    text = font.render(str(success_count), 1, blueMark)  # good points
     textpos = text.get_rect(center=(resx // 12 - boxw / 4, resy // 12 * 11.05))
     bg.blit(text, textpos)
     font = pg.font.SysFont("Calibri", 110)
-    text = font.render(str(fail_count), 1, (redMark))  # evil points
+    text = font.render(str(fail_count), 1, redMark)  # evil points
     textpos = text.get_rect(center=(resx // 12 + boxw / 4, resy // 12 * 11.05))
     bg.blit(text, textpos)
     corner_decor()
@@ -411,7 +414,7 @@ def wipe_bottom():
 
 def assassination():
     wipe_bottom()
-    playerboxw = int(((game_boardH / goldenratio)) / 2)
+    playerboxw = int((game_boardH / goldenratio) / 2)
     playerboxh = int(1.4 * questCircleR)
     font = pg.font.Font('Enchanted Land.otf', 60)
     text1 = font.render(('Keep your Character cards hidden.'), 1, lightestGray)
@@ -429,7 +432,7 @@ def assassination():
 
 def good_wins():
     wipe_bottom()
-    playerboxw = int(((game_boardH / goldenratio)) / 2)
+    playerboxw = int((game_boardH / goldenratio) / 2)
     playerboxh = int(1.4 * questCircleR)
     font = pg.font.Font('Enchanted Land.otf', 160)
     text = font.render(('Goodness prevails!'), 1, blueMark)
@@ -442,10 +445,10 @@ def good_wins():
 
 def evil_wins():
     wipe_bottom()
-    playerboxw = int(((game_boardH / goldenratio)) / 2)
+    playerboxw = int((game_boardH / goldenratio) / 2)
     playerboxh = int(1.4 * questCircleR)
     font = pg.font.Font('Enchanted Land.otf', 160)
-    text = font.render(('Evil triumphs!'), 1, redMark)
+    text = font.render('Evil triumphs!', 1, redMark)
     textpos = text.get_rect(center=(int(resx / 2 - playerboxw / 2),
                                     int(resy - ((resy - game_boardH) / 2) - 2.4 * questCircleR + playerboxh / 2)))
     bg.blit(text, textpos)
@@ -483,8 +486,8 @@ darkestGray = Color(15, 15, 15)
 darkerGray = Color(25, 25, 25)
 darkGray = Color(35, 35, 35)
 lightGray = Color(55, 55, 55)   # timer circle
-lighterGray = Color(65, 65, 65) # grayPassiveQ
-lightestGray = Color(105, 105, 105, 145) # lightestGray
+lighterGray = Color(65, 65, 65)  # grayPassiveQ
+lightestGray = Color(105, 105, 105, 145)  # lightestGray
 yellowishWhite = Color(254, 238, 199)
 redMark = Color(130, 0, 0, 145)
 blueMark = Color(6, 48, 84, 145)
@@ -501,7 +504,7 @@ success_count = 0
 fail_count = 0
 vote_count = 0
 
-# these are used when calculating proportions for other objects, test before changing values permanently
+# These are used when calculating proportions for other objects, test before changing values permanently
 game_boardW = int(resx * 0.625)
 game_boardH = int(resy * 0.6852)
 goldenratio = 1.61803398875
@@ -513,10 +516,10 @@ pg.mixer.music.set_volume(0.10)
 
 qy_b = int(resy / 2)  # vertical position, same for all big circles
 qy2 = int(qy_b + 1.75 * timerCircleR)  # vertical position, same for all small circles
-qy_v = int(qy_b + 5 * timerCircleR) # Vertical position for voting circles
+qy_v = int(qy_b + 5 * timerCircleR)  # Vertical position for voting circles
 timerCircleOffset = int(1.25 * timerCircleR)  # added to big circles x value to get small circles x position
 
-#Quest circle positions
+# Quest circle positions
 qx_pos = [0] * 5
 qx_pos[0] = int(resx / 2 - timerCircleR // 2 - questCircleR * 5)
 qx_pos[1] = int(resx / 2 - timerCircleR // 2 - questCircleR * 2.5)
@@ -531,8 +534,6 @@ vote_pos[1] = int(resx / 2 - timerCircleR // 2 - questCircleR * 3.5)
 vote_pos[2] = int(resx / 2 - timerCircleR // 2 - questCircleR * 2)
 vote_pos[3] = int(resx / 2 - timerCircleR // 2 - questCircleR * 0.5)
 vote_pos[4] = int(resx / 2 - timerCircleR // 2 + questCircleR)
-
-
 
 # TIMER
 Clock = pg.time.Clock()
@@ -576,14 +577,21 @@ quotes_list = ['The only good is knowledge, and the only evil is ignorance.',
                'One who speaks mere portions of truth in order to deceive is a craftsman of destruction.',
                'The devil\'s finest trick is to persuade you that he does not exist.']
 
+# Not in use atm
+good_characters = ['Merlin', 'Percival', 'Loyal servant of Arthur']
+evil_characters = ['Mordred', 'Morgana', 'Assassin', 'Oberon', 'Minion of Mordred']
+
 current_msg = random.choice(quotes_list)
 
+# Not in use atm
+class Player:
+    def __init__(self, name, character):
+        self.name = name
+        self.character = character
 
 
-######################################################################################
+
 #Game starts here
-
-
 game_board()
 Clock.tick(60)  # ensures a maximum of 60 frames per second, RELATED TO TIMER
 
@@ -620,6 +628,9 @@ while main_menu:
                 quit()
             print('player amount is' + str(player_amount))
 
+
+
+
 # Everyone should close their eyes and have their hand in a fist on the table...
 while night:
     night_phase()
@@ -651,34 +662,49 @@ ass_phase = True    # this is just to activate assassination later
 
 game_running = True
 voting_phase = True
-quest_phase = False
+
+
+def voting_phase_func():
+    global voting_phase, vote_count
+    if vote_count == 5:
+        evil_wins()
+        for event in pg.event.get():
+            if event.type == pg.KEYDOWN:
+                esc_quits()
+    else:
+        for event in pg.event.get():
+            if event.type == pg.KEYDOWN:
+                if event.key == pg.K_s:
+                    voting_phase = False
+                    draw_vote()
+                    vote_count = 0
+                elif event.key == pg.K_f:
+                    vote_stamp(vote_pos[vote_count])
+                    voting_phase = True
+                elif event.key == pg.K_ESCAPE:
+                    quit()
+            if event.type == clocktick:
+                clocks_increase()
+                quest_timer(qx_pos[quest_count])
+
 
 while game_running:
-    while quest_count == 0 or quest_count == 1 or quest_count == 2:
-        while voting_phase == True:
-            if vote_count == 5:
-                evil_wins()
+    if voting_phase and success_count < 3 and fail_count < 3:
+        voting_phase_func()
+    else:
+        if quest_count == 0 or quest_count == 1 or quest_count == 2:
                 for event in pg.event.get():
                     if event.type == pg.KEYDOWN:
+                        quest_stamp(qx_pos[quest_count])
                         esc_quits()
-            else:
-                for event in pg.event.get():
-                    if event.type == pg.KEYDOWN:
-                        esc_quits()
-                        if event.key == pg.K_s:
-                            voting_phase = False
-                            quest_phase = True
-                            draw_vote()
-                            vote_count = 0
-                        if event.key == pg.K_f:
+                        if event.key == pg.K_s or event.key == pg.K_f:
+                            move_pointer(qx_pos[quest_count-1], qx_pos[quest_count])
                             voting_phase = True
-                            quest_phase = False
-                            vote_stamp(vote_pos[vote_count])
                     if event.type == clocktick:
                         clocks_increase()
                         quest_timer(qx_pos[quest_count])
 
-        while quest_phase == True:
+        elif quest_count == 3 and success_count < 3 and fail_count < 3:
             for event in pg.event.get():
                 if event.type == pg.KEYDOWN:
                     quest_stamp(qx_pos[quest_count])
@@ -686,30 +712,18 @@ while game_running:
                     if event.key == pg.K_s or event.key == pg.K_f:
                         move_pointer(qx_pos[quest_count-1], qx_pos[quest_count])
                         voting_phase = True
-                        quest_phase = False
                 if event.type == clocktick:
                     clocks_increase()
                     quest_timer(qx_pos[quest_count])
 
-    while quest_count == 3 and success_count < 3 and fail_count < 3:
-        for event in pg.event.get():
-            if event.type == pg.KEYDOWN:
-                quest_stamp(qx_pos[quest_count])
-                esc_quits()
-                if event.key == pg.K_s or event.key == pg.K_f:
-                    move_pointer(qx_pos[quest_count-1], qx_pos[quest_count])
-            if event.type == clocktick:
-                clocks_increase()
-                quest_timer(qx_pos[quest_count])
-
-    while quest_count == 4 and success_count < 3 and fail_count < 3:
-        for event in pg.event.get():
-            if event.type == pg.KEYDOWN:
-                quest_stamp(qx_pos[4])
-                esc_quits()
-            if event.type == clocktick:
-                clocks_increase()
-                quest_timer(qx_pos[4])
+        elif quest_count == 4 and success_count < 3 and fail_count < 3:
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    quest_stamp(qx_pos[4])
+                    esc_quits()
+                if event.type == clocktick:
+                    clocks_increase()
+                    quest_timer(qx_pos[4])
 
     if success_count == 3 and ass_phase is True and fail_count < 3:
         assassination()
