@@ -1,0 +1,8 @@
+last quest counter freezes when I press "S" on the voting
+it still updates it correctly after I press S or F on the last quest
+
+maybe get rid of the score counter in bottom left, redundant
+
+fill screen space with info about characters etc.
+
+currently after Merlin is assassinated the game counts it as a third fail instead of the unique win condition

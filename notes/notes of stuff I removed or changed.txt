@@ -1,0 +1,68 @@
+# this is removed for now at least
+Clock.tick(60)  # ensures a maximum of 60 frames per second, RELATED TO TIMER
+
+
+def highlight_quest(qx, players):
+
+    font = pg.font.Font('Enchanted Land.otf', 180)
+
+    pg.gfxdraw.filled_circle(bg, qx, qy_b, questCircleR, lightestGray)  # big circle Q1
+    pg.gfxdraw.aacircle(bg, qx, qy_b, questCircleR, lightestGray)
+    text = font.render(str(players[0]), 1, darkGray)  # Q1 player amount
+    textpos = text.get_rect(center=(qx, qy_b))
+    bg.blit(text, textpos)
+    screen.blit(bg, (0, 0))
+    pg.display.flip()
+    #  not in use currently
+
+# Not in use atm
+good_characters = ['Merlin', 'Percival', 'Loyal servant of Arthur']
+evil_characters = ['Mordred', 'Morgana', 'Assassin', 'Oberon', 'Minion of Mordred']
+
+# Not in use atm
+class Player:
+    def __init__(self, name, character):
+        self.name = name
+        self.character = character
+
+# The bottom 4 lines were removed, as they aren't used anywhere  
+def welcome_screen():
+    linewidth = 850
+    outsideboxwidth = 140
+    outsideboxheight = 165
+    insideboxwidth = 120
+    insideboxheight = 145
+
+
+21.19 25/06/2023 
+# making changes to this part backing this one up
+# as it is now both the png image of text, and font text
+# are in the right placement, overlapping
+
+def welcome_screen():
+	[...]
+    font = pg.font.Font('fonts/Enchanted Land.otf', 200)
+    text = font.render("Welcome to Avalon", 1, lighterWood)
+    textpos = text.get_rect(center=(resx // 2, resy // 3.45))
+    textpos2 = text.get_rect(center=(resx // 2, resy // 3))
+    bg.blit(welcometoavalon, textpos2)
+    bg.blit(text, textpos)
+
+    font = pg.font.Font('fonts/Enchanted Land.otf', 165)
+    text = font.render("How many players?", 1, lighterWood)
+    textpos2 = text.get_rect(center=(resx // 2, resy // 1.95))
+    textpos = text.get_rect(center=(resx // 2, resy // 2.05))
+    bg.blit(text, textpos)
+    bg.blit(howmanyplayers, textpos2)
+
+1.19 27/06/2023
+# not really needed, move_pointers is enough
+def clear_pointers():
+    pointer_w = IMG_pointer.get_rect().width # 43
+    pointer_h = IMG_pointer.get_rect().height # 71
+    for position in range(0, 5):
+        rect_x = int(X_QUEST_CIRCLES[position] - pointer_w / 2)
+        rect_y = int(Y_QUEST_CIRCLES - 1.9 * QUEST_CIRCLE_R)
+        pg.draw.rect(bg, darkGray, [rect_x, rect_y, pointer_w, pointer_h])
+    screen.blit(bg, (0, 0))
+    pg.display.flip()
