@@ -14,5 +14,5 @@ lighterWood = (255, 235, 204)
 
 evilRed = (130, 19, 0)
 evilRedTrans = (130, 19, 0, 145)
-royalBlue = (17, 81, 102)
-royalBlueTrans = (17, 81, 102, 145)
+royalBlue = (12, 55, 71)
+royalBlueTrans = (12, 55, 71, 145)
