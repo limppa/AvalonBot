@@ -592,16 +592,16 @@ while main_game:
         voting_phase_func()
     else:
         if quest_count in [0, 1, 2, 3]:
-                for event in pg.event.get():
-                    if event.type == pg.KEYDOWN:
-                        quest_stamp()
-                        esc_quits(event)
-                        if event.key == pg.K_s or event.key == pg.K_f:
-                            move_pointer()
-                            voting_phase = True
-                    if event.type == clock_tick:
-                        clocks_increase()
-                    start_quest_timer()
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    quest_stamp()
+                    esc_quits(event)
+                    if event.key == pg.K_s or event.key == pg.K_f:
+                        move_pointer()
+                        voting_phase = True
+                if event.type == clock_tick:
+                    clocks_increase()
+                start_quest_timer()
 
         elif quest_count == 4:
             for event in pg.event.get():
