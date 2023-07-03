@@ -1,0 +1,2 @@
+If Q3 = success, but Q4 = fail (rarely happens),
+then program a "betrayal" event

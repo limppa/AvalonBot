@@ -1,0 +1,9 @@
+Game states in chronological order:
+
+- Intro screen: pre-game music plays, player inputs desired game setup (player amount, special characters,  optional rules)
+- Discussion & Voting phase:  music plays depending on which round it is and whether Good or Evil is in the lead, player inputs when voting has been successful
+- Quest phase: an in-game menu pops up and the player inputs desired music, then inputs whether the quest was a success or a fail
+[at this stage the game will jump loop back to the Discussion & Voting phase, unless there are either three successes or three fails already]
+- Assassination phase: if there are three successes, this phase activates. Tense music starts playing and the player inputs whether the Evil team successfully assassinates Merlin (in which case Evil wins) or not (in which case Good wins)
+- Evil wins: Evil music plays. This phase triggers either instantly when there are three fails, or after Merlin is assassinated. Player inputs if they want to return to main menu.
+- Good wins: Good music plays. This phase triggers after the Assassination phase results in a failed assassination of Merlin. Player inputs if they want to return to main menu.
