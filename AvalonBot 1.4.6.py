@@ -123,8 +123,9 @@ def shuffle_folder(folder_name):
         return
 
     random_song = random.choice(mp3_files)
-    while random_song == current_song:
-        random_song = random.choice(mp3_files)
+    if len(mp3_files) > 1:
+        while random_song == current_song:
+            random_song = random.choice(mp3_files)
     current_song = random_song
     #file_path = os.path.join(folder_path, random_song)
     #loop_music2(file_path)
