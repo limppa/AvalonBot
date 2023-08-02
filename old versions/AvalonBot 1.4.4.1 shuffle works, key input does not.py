@@ -1,5 +1,7 @@
 import random
 import time
+import os
+import threading # for playing music independently of the main loop
 import pygame as pg
 import pygame.gfxdraw
 from pygame.locals import *
@@ -11,7 +13,7 @@ from modules import c1 # color palette 1
 pg.init()
 
 #### SOUNDS AND MUSIC
-pg.mixer.music.set_volume(0.10)
+pg.mixer.music.set_volume(0.50)
 
 #### SCREEN
 
@@ -90,12 +92,6 @@ def get_random_quote():
         return random.choice(quotes_list).strip()
     
 random_quote = get_random_quote()
-
-
-def play_sound(file_name):
-    file_path = 'sounds/' + file_name
-    pg.mixer.music.load(file_path)
-    pg.mixer.music.play()
 
 
 def draw_circle(surface, xpos, ypos, radius, color):
@@ -181,9 +177,25 @@ def display_player_count():
     screen.blit(bg, (0, 0))
     pg.display.flip()
 
+# For exiting music gracefully
+# unsure about this whole function
+def stop_music_thread():
+    global should_quit
+    should_quit = True
+    pg.mixer.music.stop()  # Forcefully stop the music playback
+    print("Stopping music thread...")
+    music_thread.join()
+    print("Music thread stopped.")
+
+
+def esc_quits(event):
+    if event.key == K_ESCAPE:
+        stop_music_thread()
+        quit()
+
 
 def player_count_selection():
-    global player_amount, quest_players, main_menu, night
+    global player_amount, quest_players, main_menu, night_phase
 
     for event in pg.event.get():
         if event.type == pg.KEYDOWN:
@@ -206,8 +218,8 @@ def player_count_selection():
                 player_amount = 10
                 quest_players = [3, 4, 4, 5, 5]
             if event.key == K_RETURN:
+                night_phase = True
                 main_menu = False
-                night = True
             esc_quits(event)
             print('Player amount is: ' + str(player_amount))
         display_player_count()
@@ -232,7 +244,6 @@ def display_night_instructions():
 
 
 def display_circles(players):
-    print("Activating function: quest_bg...")
     font = pg.font.Font('fonts/Enchanted Land.otf', 180)
     for i in range(0, 5):
         draw_circle(bg, X_QUEST_CIRCLE[i], Y_QUEST_CIRCLE, QUEST_CIRCLE_R, c1.lighterGray)
@@ -283,8 +294,8 @@ def place_pointer(quest):
 
 
 def move_pointer():
-    xpos_current_quest = X_QUEST_CIRCLE[quest_count - 1]
-    xpos_next_quest = X_QUEST_CIRCLE[quest_count]
+    xpos_current_quest = X_QUEST_CIRCLE[completed_quests - 1]
+    xpos_next_quest = X_QUEST_CIRCLE[completed_quests]
 
     pointer_w = img['pointer'].get_rect().width  # 43
     pointer_h = img['pointer'].get_rect().height  # 71
@@ -301,19 +312,15 @@ def move_pointer():
 
 
 # Updates all relevant info when a quest is completed
-def quest_stamp():
-    global quest_count
+def mark_quest_done():
     if event.key == pg.K_s:
-        circle_color_overlay(X_QUEST_CIRCLE[quest_count], Y_QUEST_CIRCLE, QUEST_CIRCLE_R, (c1.royalBlueTrans))
+        circle_color_overlay(X_QUEST_CIRCLE[completed_quests], Y_QUEST_CIRCLE, QUEST_CIRCLE_R, (c1.royalBlueTrans))
         freeze_quest_timer()
         quest_success()
-        quest_count += 1
     if event.key == pg.K_f:
-        circle_color_overlay(X_QUEST_CIRCLE[quest_count], Y_QUEST_CIRCLE, QUEST_CIRCLE_R, c1.evilRedTrans)
+        circle_color_overlay(X_QUEST_CIRCLE[completed_quests], Y_QUEST_CIRCLE, QUEST_CIRCLE_R, c1.evilRedTrans)
         freeze_quest_timer()
         quest_fail()
-        quest_count += 1
-
 
 def vote_stamp(xpos):
     global vote_count
@@ -334,7 +341,7 @@ def clocks_increase():
         quest_secs = 0
 
 
-def total_timer():
+def update_total_timer():
     xpos = int(resx / 12 * 11.1)
     ypos = int(resy / 12 * 10.5)
 
@@ -359,38 +366,37 @@ def total_timer():
     pg.display.flip()
 
 
-def start_quest_timer():
+def update_quest_timer():
     x_offset_mins = int(TIMER_CIRCLE_R * 0.42)
     x_offset_secs = int(TIMER_CIRCLE_R * 0.35)
     font = pg.font.SysFont("Trebuchet MS", 26)
     # Background circle
-    draw_circle(bg, X_TIMER_CIRCLE[quest_count], Y_TIMER_CIRCLE, TIMER_CIRCLE_R, c1.darkestGray) # outer ring
-    draw_circle(bg, X_TIMER_CIRCLE[quest_count], Y_TIMER_CIRCLE, int(TIMER_CIRCLE_R - 0.1 * TIMER_CIRCLE_R), c1.lightGray) # inner ring
+    draw_circle(bg, X_TIMER_CIRCLE[completed_quests], Y_TIMER_CIRCLE, TIMER_CIRCLE_R, c1.darkestGray) # outer ring
+    draw_circle(bg, X_TIMER_CIRCLE[completed_quests], Y_TIMER_CIRCLE, int(TIMER_CIRCLE_R - 0.1 * TIMER_CIRCLE_R), c1.lightGray) # inner ring
     # quest_mins
     text = font.render("{0:02}".format(quest_mins), 1, c1.darkestGray)  # zero-pad Minutes to 2 digits
-    textpos = text.get_rect(center=(X_TIMER_CIRCLE[quest_count] - x_offset_mins, Y_TIMER_CIRCLE))
+    textpos = text.get_rect(center=(X_TIMER_CIRCLE[completed_quests] - x_offset_mins, Y_TIMER_CIRCLE))
     bg.blit(text, textpos)
     # quest_secs
     text = font.render(":{0:02}".format(quest_secs), 1, c1.darkestGray)
-    textpos = text.get_rect(center=(X_TIMER_CIRCLE[quest_count] + x_offset_secs, Y_TIMER_CIRCLE))
+    textpos = text.get_rect(center=(X_TIMER_CIRCLE[completed_quests] + x_offset_secs, Y_TIMER_CIRCLE))
     bg.blit(text, textpos)
     screen.blit(bg, (0, 0))
     pg.display.flip()
-    total_timer()
 
 
 def freeze_quest_timer():
     global quest_secs, quest_mins
     font = pg.font.SysFont("Trebuchet MS", 26)
-    draw_circle(bg, X_TIMER_CIRCLE[quest_count], Y_TIMER_CIRCLE, TIMER_CIRCLE_R+1, c1.darkGray) # outer ring
-    draw_circle(bg, X_TIMER_CIRCLE[quest_count], Y_TIMER_CIRCLE, int(TIMER_CIRCLE_R - 0.1 * TIMER_CIRCLE_R), c1.lightGray)
+    draw_circle(bg, X_TIMER_CIRCLE[completed_quests], Y_TIMER_CIRCLE, TIMER_CIRCLE_R+1, c1.darkGray) # outer ring
+    draw_circle(bg, X_TIMER_CIRCLE[completed_quests], Y_TIMER_CIRCLE, int(TIMER_CIRCLE_R - 0.1 * TIMER_CIRCLE_R), c1.lightGray)
     # quest_mins
     text = font.render("{0:02}".format(quest_mins), 1, c1.darkerGray)  # zero-pad Minutes to 2 digits
-    textpos = text.get_rect(center=(X_TIMER_CIRCLE[quest_count] - 18, Y_TIMER_CIRCLE))
+    textpos = text.get_rect(center=(X_TIMER_CIRCLE[completed_quests] - 18, Y_TIMER_CIRCLE))
     bg.blit(text, textpos)
     # quest_secs
     text = font.render(":{0:02}".format(quest_secs), 1, c1.darkerGray)
-    textpos = text.get_rect(center=(X_TIMER_CIRCLE[quest_count] + 15, Y_TIMER_CIRCLE))
+    textpos = text.get_rect(center=(X_TIMER_CIRCLE[completed_quests] + 15, Y_TIMER_CIRCLE))
     bg.blit(text, textpos)
     screen.blit(bg, (0, 0))
     pg.display.flip()
@@ -420,9 +426,10 @@ def display_minions_and_servants():
 
 
 def display_msg(msg):
+    # should add a "clearing" of the area underneath the displayed msg
     display_msg_x = resx // 2
     display_msg_y = int(resy * 0.259)
-    #   FIX THESE VALUES SO THEY WORK ON DIFFERENT RESOLUTIONS
+    #   values need to be coded to work with different resolutions
     font = pg.font.Font('fonts/CATFranken-Deutsch.ttf', 36)
     text = font.render(msg, 1, c1.darkestGray)
     textpos = text.get_rect(center=(display_msg_x, display_msg_y))
@@ -446,10 +453,6 @@ def display_two_fails_required():
     bg.blit(img['twofailsreq'], (X_QUEST_CIRCLE[3] - QUEST_CIRCLE_R - 13, Y_QUEST_CIRCLE - QUEST_CIRCLE_R - 27))
 
 
-def esc_quits(event):
-    if event.key == K_ESCAPE:
-        quit()
-
 
 def clear_board_bottom():
     
@@ -465,6 +468,7 @@ def clear_board_bottom():
     pg.draw.rect(bg, c1.darkGray, [rect_x, rect_y, rect_width, rect_height])
 
 
+
 def display_first_board():
     clear_board()
     display_circles(quest_players)
@@ -475,13 +479,80 @@ def display_first_board():
     place_pointer(quest=0)
 
 
+####### AUDIO #########
+
+def play_sound(file_name):
+    file_path = 'sounds/' + file_name
+    pg.mixer.music.load(file_path)
+    pg.mixer.music.play()
+    print('Playing sound: ' + str(file_name))
+
+def play_music(file_name):
+    file_path = 'music/' + file_name
+    pg.mixer.music.load(file_path)
+    pg.mixer.music.play()
+    print('Playing song: ' + str(file_name))
+
+def loop_music(file_name):
+    file_path = 'music/' + file_name
+    pg.mixer.music.load(file_path)
+    pg.mixer.music.play(-1)
+    print('Looping song: ' + str(file_name))
+
+# ------------------------------------------------------------ #
+def loop_music2(file_path):
+    pg.mixer.music.load(file_path)
+    pg.mixer.music.play(-1)
+    print('Looping song: ' + str(file_path))
+
+# testing this function from chatgpt
+def play_random_music_from_folder(folder_path):
+    if not os.path.exists(folder_path):
+        print(f"Error: Folder '{folder_path}' does not exist.")
+        return
+
+    mp3_files = [file for file in os.listdir(folder_path) if file.endswith('.mp3')]
+
+    if not mp3_files:
+        print(f"No .mp3 files found in '{folder_path}'.")
+        return
+
+    random_music = random.choice(mp3_files)
+    file_path = os.path.join(folder_path, random_music)
+    loop_music2(file_path)
+
+music_folders = ['Round 1', 'Round 2', 'Round 3', 'Round 4']
+# ------------------------------------------------------------ #
+
+def load_playlist(directory):
+    playlist = []
+    for filename in os.listdir(directory):
+        if filename.endswith(".mp3"):  # Adjust the file extension as needed
+            song_path = os.path.join(directory, filename)
+            playlist.append(song_path)
+    return playlist
+
+def play_playlist(playlist):
+    current_song = 0
+    while True:
+        pygame.mixer.music.load(playlist[current_song])
+        pygame.mixer.music.play()
+        print('Playing song: ' + str(playlist[current_song]))
+        while pygame.mixer.music.get_busy():
+            pygame.time.Clock().tick(1000)
+        current_song = (current_song + 1) % len(playlist)
+
+
+####### EVENTS / PHASES #########
+
 def voting_phase_func():
     global voting_phase, vote_count
     if vote_count == 5:
         evil_wins() 
         for event in pg.event.get():
             if event.type == pg.KEYDOWN:
-                esc_quits(event)
+                if event.key == K_ESCAPE:
+                    esc_quits(event)
     else:
         for event in pg.event.get():
             if event.type == pg.KEYDOWN:
@@ -492,9 +563,12 @@ def voting_phase_func():
                     vote_count = 0
                 elif event.key == pg.K_f:
                     vote_stamp(X_VOTE_CIRCLE[vote_count])
+                    voting_phase = True
             if event.type == clock_tick:
+                update_quest_timer()
+                update_total_timer()
                 clocks_increase()
-        start_quest_timer()
+        
 
 
 def display_assassination_instructions():
@@ -516,6 +590,11 @@ def display_assassination_instructions():
 
 
 def good_wins():
+    global music
+    if music != 'Good songs':
+        play_random_music_from_folder('music/Good songs')
+        music = 'Good songs'
+    
     clear_board_bottom()
     playerboxw = int((GAME_BOARD_H / GOLDEN_RATIO) / 2)
     playerboxh = int(1.4 * QUEST_CIRCLE_R)
@@ -529,6 +608,11 @@ def good_wins():
 
 
 def evil_wins():
+    global music
+    if music != 'Evil songs':
+        play_random_music_from_folder('music/Evil songs')
+        music = 'Evil songs'
+
     clear_board_bottom()
     playerboxw = int((GAME_BOARD_H / GOLDEN_RATIO) / 2)
     playerboxh = int(1.4 * QUEST_CIRCLE_R)
@@ -544,24 +628,32 @@ def evil_wins():
 
 player_amount = 8 # the default value displayed
 quest_players = [3, 4, 4, 5, 5]
-quest_count = 0
+completed_quests = 0
 success_count = 0
 fail_count = 0
 vote_count = 0
 
-
-main_menu = True
 night_phase = False
 
 welcome_screen_initialized = False
 night_phase_initialized = False
+assassination_instructions_initialized = False
+voting_phase_music_initialized = False
+should_quit = False # for terminating music gracefully
+
+assassin_phase = True    # this is just to activate assassination later
+Merlin = 'alive'
+
+music = None
 
 ######################### MAIN LOOPS ##################################
 
 # Start of the game. Choose number of players and press enter to move to "Night phase"
+main_menu = True
 while main_menu:
     if not welcome_screen_initialized:
         display_welcome_screen()
+        loop_music('Main menu/The O\'Jays - Back Stabbers.mp3')
         welcome_screen_initialized = True
     player_count_selection()
     Clock.tick(60)  
@@ -570,61 +662,109 @@ while main_menu:
 while night_phase:
     if not night_phase_initialized:
         display_night_instructions()
+        loop_music('Night phase/Hans Zimmer - Memories of Sherlock.mp3')
         night_phase_initialized = True
     for event in pg.event.get():
         if event.type == pg.KEYDOWN:
             if event.key == K_RETURN:
                 night_phase = False
+                
             esc_quits(event)
     Clock.tick(60)  
 
-# Main game begins, King chooses team
+# Main game begins
 display_first_board()
-
-assassin_phase = True    # this is just to activate assassination later
-Merlin = 'alive'
 
 main_game = True
 voting_phase = True
-
 while main_game:
-    if voting_phase:
+    
+    # Nominating and voting on teams
+    if voting_phase and success_count < 3 and fail_count < 3:
         voting_phase_func()
+        if not voting_phase_music_initialized:
+            if completed_quests < len(music_folders):
+                #play_random_music_from_folder('music/' + music_folders[completed_quests])
+
+                playlist = load_playlist("music/test")
+                music_started = True
+
+                voting_phase_music_initialized = True
+
+    for event in pygame.event.get():
+        if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+            main_game = False
+
+    # Handle music playback
+    if music_started:
+        play_playlist(playlist)
+        music_started = False
+
+    # Picking quest cards and telling a story
     else:
-        if quest_count in [0, 1, 2, 3]:
+        if completed_quests in [0, 1, 2, 3] and success_count < 3 and fail_count < 3:
+
             for event in pg.event.get():
                 if event.type == pg.KEYDOWN:
-                    quest_stamp()
                     esc_quits(event)
                     if event.key == pg.K_s or event.key == pg.K_f:
+                        mark_quest_done()
+                        completed_quests += 1
                         move_pointer()
+                        voting_phase_music_initialized = False
                         voting_phase = True
+                    print('completed_quests = ' + str(completed_quests))
+                    print('success_count = ' + str(success_count))
+                    print('fail_count = ' + str(fail_count))
                 if event.type == clock_tick:
                     clocks_increase()
-                start_quest_timer()
+                update_quest_timer()
+                update_total_timer()
 
-        elif quest_count == 4:
+        elif completed_quests == 4 and success_count < 3 and fail_count < 3:
+
+            # this starts playing after the Q5 final team is passed
+            if not voting_phase_music_initialized:
+                play_random_music_from_folder('music/Round 5')
+                voting_phase_music_initialized = True
+
             for event in pg.event.get():
                 if event.type == pg.KEYDOWN:
-                    quest_stamp()
                     esc_quits(event)
+                    if event.key == pg.K_s or event.key == pg.K_f:
+                        mark_quest_done()
+                        completed_quests += 1
+                        voting_phase_music_initialized = False
+                    print('completed_quests = ' + str(completed_quests))
+                    print('success_count = ' + str(success_count))
+                    print('fail_count = ' + str(fail_count))
                 if event.type == clock_tick:
                     clocks_increase()
-
+    
+    # ASSASSINATION
     if success_count == 3 and assassin_phase is True:
-        display_assassination_instructions()
+        if not assassination_instructions_initialized:
+            display_assassination_instructions()
+            assassination_instructions_initialized = True
         for event in pg.event.get():
             if event.type == pg.KEYDOWN:
                 esc_quits(event)
                 if event.key == pg.K_g:
+                    print('pressed g')
                     assassin_phase = False
                 elif event.key == pg.K_e:
+                    print('pressed e')
                     Merlin = 'dead'
                     assassin_phase = False
             if event.type == clock_tick:
                 clocks_increase()
-                total_timer()
+            update_total_timer()
 
+        if music != 'Assassination':
+            play_music('Cornelius Link - Astronomia - Medieval Style.mp3')
+            music = 'Assassination'
+          
+    # GOOD VICTORY
     elif success_count == 3 and assassin_phase is False and Merlin == 'alive':
         good_wins()
         for event in pg.event.get():
@@ -635,11 +775,13 @@ while main_game:
                     welcome_screen_initialized = False
                     main_menu = True
 
+    # EVIL WINS BY THREE FAILED QUESTS
     elif fail_count == 3:
         evil_wins()
         for event in pg.event.get():
             if event.type == pg.KEYDOWN:
                 esc_quits(event)
+    # EVIL WINS BY ASSASSINATING MERLIN
     elif Merlin == 'dead':
         evil_wins()
         for event in pg.event.get():
@@ -648,3 +790,5 @@ while main_game:
 
     Clock.tick(60)
 
+print('reached end of code')
+quit()
