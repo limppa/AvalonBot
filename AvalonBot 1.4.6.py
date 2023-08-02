@@ -607,6 +607,8 @@ while main_menu:
         display_welcome_screen()
         shuffle_folder('Main menu')
         welcome_screen_initialized = True
+    if not pygame.mixer.music.get_busy():
+        shuffle_folder('FOOBAR')
     player_count_selection()
     Clock.tick(60)  
 
