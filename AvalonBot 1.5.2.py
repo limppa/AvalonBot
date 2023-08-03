@@ -75,13 +75,16 @@ X_TIMER_CIRCLE = [x + TIMER_CIRCLE_OFFSET for x in X_QUEST_CIRCLE]
 Clock = pg.time.Clock()
 clock_tick = pg.USEREVENT + 1 # Custom event ID for timer
 pg.time.set_timer(clock_tick, 1000) # Fires once per second
-total_secs = 0
-total_mins = 0
-quest_secs = 0
-quest_mins = 0
 
 # QUOTES
 quotes_file = "text/quotes.txt"
+
+def get_random_quote():
+    with open(quotes_file, "r") as file:
+        quotes_list = file.readlines()
+        return random.choice(quotes_list).strip()
+    
+random_quote = get_random_quote()
 
 ####### AUDIO #########
 
@@ -134,14 +137,6 @@ playlist_for_each_round = ['Round 1', 'Round 2', 'Round 3', 'Round 4', 'Round 5'
 playlist_for_each_quest = ['Quest 1', 'Quest 2', 'Quest 3', 'Quest 4', 'Quest 5']
 
 ################### FUNCTIONS #######################
-
-def get_random_quote():
-    with open(quotes_file, "r") as file:
-        quotes_list = file.readlines()
-        return random.choice(quotes_list).strip()
-    
-random_quote = get_random_quote()
-
 
 def draw_circle(surface, xpos, ypos, radius, color):
     pg.gfxdraw.filled_circle(surface, xpos, ypos, radius, color)
@@ -487,6 +482,11 @@ def esc_quits(event):
     if event.key == K_ESCAPE:
         quit()
 
+def enter_restarts():
+    global reset_game
+    if event.key == K_RETURN:
+        reset_game = True # used at end of game
+
 
 def clear_board_bottom():
     
@@ -584,17 +584,24 @@ success_count = 0
 fail_count = 0
 vote_count = 0
 
+# Timers
+total_mins = 0
+total_secs = 0
+quest_mins = 0
+quest_secs = 0
+
 Merlin_status = 'hiding' # options: hiding/survived/died
 
+# Actions done only once upon initialization
 welcome_screen_initialized = False
 night_phase_initialized = False
 main_game_initialized = False
 assassination_phase_initialized = False
 win_phase_initialized = False
-
 voting_music_initialized = False
 quest_music_initialized = False
 
+game_running = True
 reset_game = False
 
 ######################### MAIN LOOPS ##################################
@@ -602,175 +609,190 @@ reset_game = False
 # Start of the game. Choose number of players and press enter to move to "Night phase"
 main_menu = True
 night_phase = False
-while main_menu:
-    if not welcome_screen_initialized:
-        print('line 606 !!!')
-        display_welcome_screen()
-        current_song_index = 0
-        shuffle_folder('Main menu')
-        play_music_folder('Main menu')
-        welcome_screen_initialized = True
-    if not pg.mixer.music.get_busy():
-        play_music_folder('Main menu')
-    player_count_selection()
-    Clock.tick(60)
 
-# "Close your eyes and form a fist..."
-while night_phase:
-    if not night_phase_initialized:
-        display_night_instructions()
-        current_song_index = 0
-        shuffle_folder('Night phase')
-        play_music_folder('Night phase')
-        night_phase_initialized = True
-    if not pg.mixer.music.get_busy():
-        play_music_folder('Night phase')
-    for event in pg.event.get():
-        if event.type == pg.KEYDOWN:
-            if event.key == K_RETURN:
-                night_phase = False
-                main_game = True
-                voting_phase = True
-            esc_quits(event)
-    Clock.tick(60)
-
-
-# Main game begins
-while main_game:
-
-    if main_game_initialized == False:
-        display_first_board()
-        main_game_initialized = True
-    
-    # Nominating and voting on teams
-    if voting_phase and success_count < 3 and fail_count < 3:
-        voting_phase_func()
-        if not voting_music_initialized:
+while game_running:
+    while main_menu:
+        if not welcome_screen_initialized:
+            display_welcome_screen()
             current_song_index = 0
-            shuffle_folder(playlist_for_each_round[completed_quests])
-            play_music_folder(playlist_for_each_round[completed_quests])
-            voting_music_initialized = True
+            shuffle_folder('Main menu')
+            play_music_folder('Main menu')
+            welcome_screen_initialized = True
         if not pg.mixer.music.get_busy():
-            play_music_folder(playlist_for_each_round[completed_quests])
+            play_music_folder('Main menu')
+        player_count_selection()
+        Clock.tick(60)
 
-    # Picking quest cards and telling a story
-    elif success_count < 3 and fail_count < 3:
-        if not quest_music_initialized:
+    # "Close your eyes and form a fist..."
+    while night_phase:
+        if not night_phase_initialized:
+            display_night_instructions()
+            #pg.mixer.music.fadeout(2500)
             current_song_index = 0
-            shuffle_folder(playlist_for_each_quest[completed_quests])
-            play_music_folder(playlist_for_each_quest[completed_quests])
-            quest_music_initialized = True
+            shuffle_folder('Night phase')
+            play_music_folder('Night phase')
+            night_phase_initialized = True
         if not pg.mixer.music.get_busy():
-            # Audio indicator to hurry up with the quest
-            loop_sound('waiting.mp3')
-
+            play_music_folder('Night phase')
         for event in pg.event.get():
             if event.type == pg.KEYDOWN:
-                esc_quits(event)
-                if event.key == pg.K_s or event.key == pg.K_f:
-                    mark_quest_done()
-                    completed_quests += 1
-                    if completed_quests < 5:
-                        move_pointer()
-                        voting_music_initialized = False
-                        quest_music_initialized = False
-                        voting_phase = True
-                #print(f'completed_quests={completed_quests}, success_count={success_count}, fail_count={fail_count}')
-            if event.type == clock_tick:
-                clocks_increase()
-            if completed_quests < 5:
-                update_quest_timer()
-                update_total_timer()
-
-    
-    # ASSASSINATION
-    if success_count == 3 and Merlin_status == 'hiding':
-        if not assassination_phase_initialized:
-            display_assassination_instructions()
-            current_song_index = 0
-            shuffle_folder('Assassination')
-            play_music_folder('Assassination')
-            assassination_phase_initialized = True
-        if not pg.mixer.music.get_busy():
-            play_music_folder('Assassination')
-
-        for event in pg.event.get():
-            if event.type == pg.KEYDOWN:
-                esc_quits(event)
-                if event.key == pg.K_g:
-                    Merlin_status = 'survived'
-                elif event.key == pg.K_e:
-                    Merlin_status = 'died'
-            if event.type == clock_tick:
-                clocks_increase()
-            update_total_timer()
-          
-    # GOOD VICTORY
-    elif success_count == 3 and Merlin_status == 'survived':
-        if not win_phase_initialized:
-            good_wins()
-            current_song_index = 0
-            shuffle_folder('Good songs')
-            play_music_folder('Good songs')
-            win_phase_initialized = True
-        if not pg.mixer.music.get_busy():
-            play_music_folder('Mellansånger')
-
-        for event in pg.event.get():
-            if event.type == pg.KEYDOWN:
-                esc_quits(event)
-
-    # EVIL WINS BY THREE FAILED QUESTS
-    elif fail_count == 3:
-        if not win_phase_initialized:
-            evil_wins()
-            current_song_index = 0
-            shuffle_folder('Evil songs')
-            play_music_folder('Evil songs')
-            win_phase_initialized = True
-        if not pg.mixer.music.get_busy():
-            shuffle_folder('Mellansånger')
-
-        for event in pg.event.get():
-            if event.type == pg.KEYDOWN:
-                esc_quits(event)
-
-    # EVIL WINS BY ASSASSINATING MERLIN
-    elif Merlin_status == 'died':
-        if not win_phase_initialized:
-            evil_wins()
-            current_song_index = 0
-            shuffle_folder('Evil songs')
-            play_music_folder('Evil songs')
-            win_phase_initialized = True
-        if not pg.mixer.music.get_busy():
-            play_music_folder('Evil songs')
-
-        for event in pg.event.get():
-            if event.type == pg.KEYDOWN:
-                esc_quits(event)
                 if event.key == K_RETURN:
-                    reset_game = True
+                    night_phase = False
+                    main_game = True
+                    voting_phase = True
+                esc_quits(event)
+        Clock.tick(60)
 
-    if reset_game:
-        reset_game = False
-        # Reset other game-related variables
-        completed_quests = 0
-        success_count = 0
-        fail_count = 0
-        vote_count = 0
-        Merlin_status = 'hiding'
-        welcome_screen_initialized = False
-        night_phase_initialized = False
-        main_game = False
-        voting_phase = False
-        main_game_initialized = False
-        assassination_phase_initialized = False
-        win_phase_initialized = False
-        voting_music_initialized = False
-        quest_music_initialized = False       
-        # Return to the main menu loop
-        main_menu = True
-        night_phase = False
 
-    Clock.tick(60)
+    # Main game begins
+    while main_game:
+
+        if main_game_initialized == False:
+            display_first_board()
+            main_game_initialized = True
+        
+        # Nominating and voting on teams
+        if voting_phase and success_count < 3 and fail_count < 3:
+            voting_phase_func()
+            if not voting_music_initialized:
+                #pg.mixer.music.fadeout(100)
+                current_song_index = 0
+                shuffle_folder(playlist_for_each_round[completed_quests])
+                play_music_folder(playlist_for_each_round[completed_quests])
+                voting_music_initialized = True
+            if not pg.mixer.music.get_busy():
+                play_music_folder(playlist_for_each_round[completed_quests])
+
+        # Picking quest cards and telling a story
+        elif success_count < 3 and fail_count < 3:
+            if not quest_music_initialized:
+                #pg.mixer.music.fadeout(1000)
+                current_song_index = 0
+                shuffle_folder(playlist_for_each_quest[completed_quests])
+                play_music_folder(playlist_for_each_quest[completed_quests])
+                quest_music_initialized = True
+            if not pg.mixer.music.get_busy():
+                # Audio indicator to hurry up with the quest
+                loop_sound('waiting.mp3')
+
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    esc_quits(event)
+                    if event.key == pg.K_s or event.key == pg.K_f:
+                        mark_quest_done()
+                        completed_quests += 1
+                        if completed_quests < 5 and success_count < 3 and fail_count < 3:
+                            move_pointer()
+                            voting_music_initialized = False
+                            quest_music_initialized = False
+                            voting_phase = True
+                    #print(f'completed_quests={completed_quests}, success_count={success_count}, fail_count={fail_count}')
+                if event.type == clock_tick:
+                    clocks_increase()
+                if completed_quests < 5 and success_count < 3 and fail_count < 3:
+                    update_quest_timer()
+                    update_total_timer()
+
+        
+        # ASSASSINATION
+        if success_count == 3 and Merlin_status == 'hiding':
+            if not assassination_phase_initialized:
+                display_assassination_instructions()
+                #pg.mixer.music.fadeout(1000)
+                current_song_index = 0
+                shuffle_folder('Assassination')
+                play_music_folder('Assassination')
+                assassination_phase_initialized = True
+            if not pg.mixer.music.get_busy():
+                play_music_folder('Assassination')
+
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    esc_quits(event)
+                    if event.key == pg.K_g:
+                        Merlin_status = 'survived'
+                    elif event.key == pg.K_e:
+                        Merlin_status = 'died'
+                if event.type == clock_tick:
+                    clocks_increase()
+                update_total_timer()
+            
+        # GOOD VICTORY
+        elif success_count == 3 and Merlin_status == 'survived':
+            if not win_phase_initialized:
+                good_wins()
+                #pg.mixer.music.fadeout(100)
+                current_song_index = 0
+                shuffle_folder('Good songs')
+                play_music_folder('Good songs')
+                win_phase_initialized = True
+            if not pg.mixer.music.get_busy():
+                play_music_folder('Mellansånger')
+
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    esc_quits(event)
+                    enter_restarts()
+
+        # EVIL WINS BY THREE FAILED QUESTS
+        elif fail_count == 3:
+            if not win_phase_initialized:
+                evil_wins()
+                #pg.mixer.music.fadeout(100)
+                current_song_index = 0
+                shuffle_folder('Evil songs')
+                play_music_folder('Evil songs')
+                win_phase_initialized = True
+            if not pg.mixer.music.get_busy():
+                shuffle_folder('Mellansånger')
+
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    esc_quits(event)
+                    enter_restarts()
+
+        # EVIL WINS BY ASSASSINATING MERLIN
+        elif Merlin_status == 'died':
+            if not win_phase_initialized:
+                evil_wins()
+                #pg.mixer.music.fadeout(100)
+                current_song_index = 0
+                shuffle_folder('Evil songs')
+                play_music_folder('Evil songs')
+                win_phase_initialized = True
+            if not pg.mixer.music.get_busy():
+                play_music_folder('Evil songs')
+
+            for event in pg.event.get():
+                if event.type == pg.KEYDOWN:
+                    esc_quits(event)
+                    enter_restarts()
+
+        if reset_game:
+            reset_game = False
+            # RESET ALL GAME RELATED VARIABLES
+            completed_quests = 0
+            success_count = 0
+            fail_count = 0
+            vote_count = 0
+            Merlin_status = 'hiding'
+            # Actions done only once upon initialization
+            welcome_screen_initialized = False
+            night_phase_initialized = False
+            main_game = False
+            voting_phase = False
+            main_game_initialized = False
+            assassination_phase_initialized = False
+            win_phase_initialized = False
+            voting_music_initialized = False
+            quest_music_initialized = False      
+            # Timers
+            total_mins = 0
+            total_secs = 0
+            quest_mins = 0
+            quest_secs = 0 
+            # Return to the main menu loop
+            main_menu = True
+            night_phase = False
+
+        Clock.tick(60)
