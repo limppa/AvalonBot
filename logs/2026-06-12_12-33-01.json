@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "date": "2026-06-12T12:33:01.533Z",
+  "settings": {
+    "players": 7,
+    "gameSpeed": "normal",
+    "targetTime": 45,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": true,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": true,
+      "excalibur": false
+    }
+  },
+  "night": {
+    "seconds": 1
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "failedVotes": 2,
+      "result": "fail",
+      "votingSeconds": 10,
+      "cardSeconds": 3,
+      "endTimestamp": 14
+    },
+    {
+      "questNumber": 2,
+      "failedVotes": 2,
+      "result": "success",
+      "votingSeconds": 6,
+      "cardSeconds": 1,
+      "endTimestamp": 21
+    },
+    {
+      "questNumber": 3,
+      "failedVotes": 2,
+      "result": "fail",
+      "votingSeconds": 4,
+      "cardSeconds": 17,
+      "endTimestamp": 42
+    },
+    {
+      "questNumber": 4,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 3,
+      "cardSeconds": 11,
+      "endTimestamp": 56
+    },
+    {
+      "questNumber": 5,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 5,
+      "cardSeconds": 1,
+      "endTimestamp": 62
+    }
+  ],
+  "assassination": {
+    "seconds": 28
+  },
+  "outcome": {
+    "winner": "good",
+    "reason": "merlin-survived",
+    "totalSeconds": 90
+  },
+  "optional": {
+    "balance": null,
+    "assassinConfidence": null,
+    "assassinationTarget": null,
+    "newPlayers": {
+      "good": null,
+      "evil": null
+    },
+    "notes": ""
+  }
+}

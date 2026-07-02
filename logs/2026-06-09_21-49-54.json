@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "date": "2026-06-09T21:49:54.723Z",
+  "settings": {
+    "players": 5,
+    "gameSpeed": "speedrun",
+    "targetTime": 11,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": false,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": false,
+      "excalibur": false
+    }
+  },
+  "night": {
+    "seconds": 1
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 58,
+      "cardSeconds": 21,
+      "endTimestamp": 80
+    },
+    {
+      "questNumber": 2,
+      "failedVotes": 1,
+      "result": "success",
+      "votingSeconds": 31,
+      "cardSeconds": 17,
+      "endTimestamp": 128
+    },
+    {
+      "questNumber": 3,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 5,
+      "cardSeconds": 1,
+      "endTimestamp": 134
+    },
+    {
+      "questNumber": 4,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 4,
+      "cardSeconds": 1,
+      "endTimestamp": 139
+    },
+    {
+      "questNumber": 5,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 2,
+      "cardSeconds": 3,
+      "endTimestamp": 144
+    }
+  ],
+  "assassination": {
+    "seconds": 3
+  },
+  "outcome": {
+    "winner": "good",
+    "reason": "merlin-survived",
+    "totalSeconds": 147
+  },
+  "optional": {
+    "balance": 0,
+    "assassinConfidence": 3,
+    "assassinationTarget": "Jonas",
+    "newPlayers": {
+      "good": null,
+      "evil": null
+    },
+    "notes": ""
+  },
+  "roster": [
+    {
+      "name": "Noora",
+      "team": "good",
+      "role": "Merlin"
+    },
+    {
+      "name": "Jonas",
+      "team": "good",
+      "role": "Percival"
+    },
+    {
+      "name": "Linus",
+      "team": "good",
+      "role": "Loyal Servant"
+    },
+    {
+      "name": "Ale",
+      "team": "evil",
+      "role": "Assassin"
+    },
+    {
+      "name": "Isak",
+      "team": "evil",
+      "role": "Morgana"
+    }
+  ]
+}

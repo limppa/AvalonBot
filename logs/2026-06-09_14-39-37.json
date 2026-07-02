@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "date": "2026-06-09T14:39:37.373Z",
+  "settings": {
+    "players": 7,
+    "gameSpeed": "normal",
+    "targetTime": 45,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": true,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": true,
+      "excalibur": false
+    },
+    "questSizes": [
+      2,
+      3,
+      3,
+      4,
+      4
+    ]
+  },
+  "night": {
+    "seconds": 2
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "teamSize": 2,
+      "failedVotes": 2,
+      "result": "success",
+      "votingSeconds": 13,
+      "cardSeconds": 5,
+      "endTimestamp": 20
+    },
+    {
+      "questNumber": 2,
+      "teamSize": 3,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 3,
+      "cardSeconds": 2,
+      "endTimestamp": 25
+    },
+    {
+      "questNumber": 3,
+      "teamSize": 3,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 8,
+      "cardSeconds": 4,
+      "endTimestamp": 37
+    },
+    {
+      "questNumber": 4,
+      "teamSize": 4,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 7,
+      "cardSeconds": 5,
+      "endTimestamp": 49
+    }
+  ],
+  "assassination": {
+    "seconds": 7,
+    "endTimestamp": 56
+  },
+  "outcome": {
+    "winner": "evil",
+    "reason": "merlin-killed",
+    "totalSeconds": 56
+  },
+  "optional": {
+    "notes": "this is a test comment typed at the end"
+  }
+}

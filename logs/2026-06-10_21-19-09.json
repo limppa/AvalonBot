@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "date": "2026-06-10T21:19:09.917Z",
+  "settings": {
+    "players": 5,
+    "gameSpeed": "speedrun",
+    "targetTime": 11,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": false,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": false,
+      "excalibur": false
+    }
+  },
+  "night": {
+    "seconds": 2
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "failedVotes": 2,
+      "result": "success",
+      "votingSeconds": 46,
+      "cardSeconds": 23,
+      "endTimestamp": 71
+    },
+    {
+      "questNumber": 2,
+      "failedVotes": 2,
+      "result": "fail",
+      "votingSeconds": 102,
+      "cardSeconds": 12,
+      "endTimestamp": 185
+    },
+    {
+      "questNumber": 3,
+      "failedVotes": 2,
+      "result": "success",
+      "votingSeconds": 11,
+      "cardSeconds": 8,
+      "endTimestamp": 204
+    },
+    {
+      "questNumber": 4,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 5,
+      "cardSeconds": 6,
+      "endTimestamp": 215
+    }
+  ],
+  "assassination": {
+    "seconds": 9
+  },
+  "outcome": {
+    "winner": "good",
+    "reason": "merlin-survived",
+    "totalSeconds": 224
+  },
+  "optional": {
+    "balance": 0,
+    "assassinConfidence": 2,
+    "assassinationTarget": "Jacky",
+    "newPlayers": {
+      "good": 0,
+      "evil": 0
+    },
+    "notes": "test note"
+  },
+  "roster": [
+    {
+      "name": "Linus",
+      "team": "good",
+      "role": "Merlin"
+    },
+    {
+      "name": "Ale",
+      "team": "good",
+      "role": "Percival"
+    },
+    {
+      "name": "Jacky",
+      "team": "good",
+      "role": "Loyal Servant"
+    },
+    {
+      "name": "Isak",
+      "team": "evil",
+      "role": "Assassin"
+    },
+    {
+      "name": "Jonas",
+      "team": "evil",
+      "role": "Morgana"
+    }
+  ]
+}

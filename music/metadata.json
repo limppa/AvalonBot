@@ -1,0 +1,37 @@
+{
+  "_comment": "Tag songs with medieval: false to exclude them when the Medieval filter is on. Omitting a song means it's treated as medieval-OK by default.",
+
+  "Hans Zimmer - Memories of Sherlock.mp3":                                     { "medieval": false },
+  "John Williams - Padmé's Ruminations.mp3":                                     { "medieval": false },
+  "Nate Fifield - Harry Potter Professor Umbridge (Jeté 1).mp3":                 { "medieval": false },
+  "Rachel Portman - Sht Kicking, Eviction Notice.mp3":                           { "medieval": false },
+
+  "Braxton Burks - SS Anne.mp3":                                                 { "medieval": false },
+
+  "Kaleidoscope Orchestra - Inspector Norse - Kaleidoscope Orchestra Remix.mp3": { "medieval": false },
+
+  "Hitoshi Sakimoto - Chocobo Theme - Zodiac Age Version.mp3":                   { "medieval": false },
+  "Ramin Djawadi - Sweetwater.mp3":                                              { "medieval": false },
+
+  "Clint Mansell - Lux Aeterna.mp3":                                             { "medieval": false },
+  "Ramin Djawadi - Light of the Seven.mp3":                                      { "medieval": false },
+  "The Flight - Years Of Training - Part 1 - Motherland.mp3":                    { "medieval": false },
+  "Worakls - Caprice.mp3":                                                       { "medieval": false },
+
+  "ACDC - Let's Get It Up.mp3":                                                  { "medieval": false },
+  "Bill Conti - Going The Distance - 2006 Digital Remaster.mp3":                 { "medieval": false },
+  "Bobby Morganstein - CBS Golf Theme.mp3":                                      { "medieval": false },
+  "Daft Punk - Beyond.mp3":                                                      { "medieval": false },
+
+  "Black Sabbath - God Is Dead.mp3":                                             { "medieval": false },
+  "Blonde Redhead - For the Damaged Coda.mp3":                                   { "medieval": false },
+  "Frank Sinatra - That's Life.mp3":                                             { "medieval": false },
+  "Slayer - Raining Blood.mp3":                                                  { "medieval": false },
+
+  "Eagles - Lyin' Eyes - Single Version; 2018 Remaster.mp3":                    { "medieval": false },
+  "Electric Light Orchestra - Evil Woman.mp3":                                   { "medieval": false },
+  "Franz Ferdinand - Evil Eye.mp3":                                              { "medieval": false },
+  "Jace Everett - Bad Things.mp3":                                               { "medieval": false },
+  "Jeff Beck - I Put a Spell on You (feat. Joss Stone).mp3":                    { "medieval": false },
+  "The O'Jays - Back Stabbers.mp3":                                              { "medieval": false }
+}

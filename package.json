@@ -1,0 +1,12 @@
+{
+  "name": "avalonbot",
+  "version": "3.0.0",
+  "description": "Companion app for The Resistance: Avalon",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^35.0.0"
+  }
+}

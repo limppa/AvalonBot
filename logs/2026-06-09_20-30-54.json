@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "date": "2026-06-09T20:30:54.670Z",
+  "settings": {
+    "players": 7,
+    "gameSpeed": "normal",
+    "targetTime": 45,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": true,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": true,
+      "excalibur": false
+    }
+  },
+  "night": {
+    "seconds": 1
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 9,
+      "cardSeconds": 29,
+      "endTimestamp": 39
+    },
+    {
+      "questNumber": 2,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 1,
+      "cardSeconds": 0,
+      "endTimestamp": 40
+    },
+    {
+      "questNumber": 3,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 1,
+      "cardSeconds": 0,
+      "endTimestamp": 41
+    },
+    {
+      "questNumber": 4,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 1,
+      "cardSeconds": 0,
+      "endTimestamp": 42
+    },
+    {
+      "questNumber": 5,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 0,
+      "cardSeconds": 1,
+      "endTimestamp": 43
+    }
+  ],
+  "assassination": {
+    "seconds": 5
+  },
+  "outcome": {
+    "winner": "good",
+    "reason": "merlin-survived",
+    "totalSeconds": 48
+  },
+  "optional": {
+    "balance": 1,
+    "assassinConfidence": 3,
+    "assassinationTarget": "Loyal Servant",
+    "newPlayers": {
+      "good": 0,
+      "evil": 0
+    },
+    "notes": ""
+  },
+  "roster": [
+    {
+      "name": "Linus",
+      "team": "good",
+      "role": "Merlin"
+    },
+    {
+      "name": "Ale",
+      "team": "good",
+      "role": "Percival"
+    },
+    {
+      "name": "Jacky",
+      "team": "good",
+      "role": "Loyal Servant"
+    },
+    {
+      "name": "Isak",
+      "team": "good",
+      "role": "Loyal Servant"
+    },
+    {
+      "name": "Jonas",
+      "team": "evil",
+      "role": "Assassin"
+    },
+    {
+      "name": "Noora",
+      "team": "evil",
+      "role": "Morgana"
+    },
+    {
+      "name": "Hampus",
+      "team": "evil",
+      "role": "Oberon"
+    }
+  ]
+}
