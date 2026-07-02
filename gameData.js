@@ -89,6 +89,13 @@ const QUEST_ALLOTTED_LOTL = [246, 321, 486, 561, 636]
 // Saga/Slow/Normal: Q3 (index 2 — the middle quest). Fast: Q2. Speedrun: Q1.
 const ASSN_QUEST_INDEX = { saga: 2, slow: 2, normal: 2, fast: 1, speedrun: 0 }
 
+// ── Assassination time formula (pool/evil-share based) ───────────────────────
+// Not yet wired in anywhere — see calcAssnFraction() in renderer.js.
+// ASSN_POOL_REF: median (good-players + Oberon-in-play) pool across default 5-10p configs.
+// ASSN_EVIL_PCT_REF: evil-player share at 8 players, used as the reference share.
+const ASSN_POOL_REF     = 5
+const ASSN_EVIL_PCT_REF = 3 / 8
+
 // ── Quest card-play time (seconds) per team size, by speed ───────────────────
 // All speeds use +10s per extra player. Controls the outer-ring card timer.
 const QUEST_CARD_TIME = {
@@ -134,6 +141,8 @@ module.exports = {
   QUEST_ALLOTTED_LOTL,
   QUEST_ALLOTTED_SUM,
   ASSN_QUEST_INDEX,
+  ASSN_POOL_REF,
+  ASSN_EVIL_PCT_REF,
   QUEST_CARD_TIME,
   SPEED_ANCHOR_7P,
   DISCUSSION_RATE,

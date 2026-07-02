@@ -12,6 +12,8 @@ const {
   QUEST_ALLOTTED_LOTL,
   QUEST_ALLOTTED_SUM,
   ASSN_QUEST_INDEX,
+  ASSN_POOL_REF,
+  ASSN_EVIL_PCT_REF,
   QUEST_CARD_TIME,
   SPEED_ANCHOR_7P,
   DISCUSSION_RATE,
@@ -212,6 +214,19 @@ function buildTeamRoles(players, characters) {
   return { good, evil }
 }
 
+// Fraction of the Q1-Q5 discussion budget that Assassination takes.
+// Not yet called anywhere — added standalone first to confirm it doesn't break the app.
+// assnFraction = 0.10 × poolFactor × evilFactor
+function calcAssnFraction() {
+  const evilCount   = settings.players <= 6 ? 2 : settings.players <= 9 ? 3 : 4
+  const goodCount   = settings.players - evilCount
+  const pool        = goodCount + (settings.characters.oberon ? 1 : 0)
+  const poolFactor  = Math.sqrt(pool / ASSN_POOL_REF)
+  const evilPct     = evilCount / settings.players
+  const evilFactor  = ASSN_EVIL_PCT_REF / evilPct
+  return 0.10 * poolFactor * evilFactor
+}
+
 // Returns the discussion-only budget in seconds for the current settings.
 // Assassination gets the same duration as quest Q3 (saga/slow/normal), Q2 (fast), or Q1 (speedrun).
 function calcDiscussionBudget() {
@@ -220,9 +235,8 @@ function calcDiscussionBudget() {
   const cardTotal = gs.questSizes.reduce((sum, size) => sum + (cardTimes[size] || 60), 0)
   const nightSecs = calcNightExpected()
   const available = Math.max(0, settings.targetTime * 60 - nightSecs - cardTotal)
-  const qi        = ASSN_QUEST_INDEX[speed]
-  const fraction  = QUEST_ALLOTTED_SUM / (QUEST_ALLOTTED_SUM + QUEST_ALLOTTED_BASE[qi])
-  return Math.max(60, Math.round(available * fraction))
+  const budget    = available / (1 + calcAssnFraction())
+  return Math.max(60, Math.round(budget))
 }
 
 function updateQuestAllotted() {
@@ -326,9 +340,8 @@ function newGame(players = settings.players) {
   const cardTotal_  = questSizes_.reduce((sum, size) => sum + (cardTimes_[size] || 60), 0)
   const nightSecs_  = calcNightExpected()   // hoisted — safe to call before definition
   const available_  = Math.max(0, settings.targetTime * 60 - nightSecs_ - cardTotal_)
-  const qi_         = ASSN_QUEST_INDEX[speed_]
-  const fraction_   = QUEST_ALLOTTED_SUM / (QUEST_ALLOTTED_SUM + QUEST_ALLOTTED_BASE[qi_])
-  const budget_     = Math.max(60, Math.round(available_ * fraction_))
+  const budget_     = Math.max(60, Math.round(available_ / (1 + calcAssnFraction())))
+  const assn_       = available_ - budget_
   const weights_    = settings.abilities.lotl ? QUEST_ALLOTTED_LOTL : QUEST_ALLOTTED_BASE
   const allotted    = weights_.map(t => Math.round(t / QUEST_ALLOTTED_SUM * budget_))
   return {
@@ -353,7 +366,7 @@ function newGame(players = settings.players) {
     assnStart:        0,
     assnSecs:         0,
     assnEndTime:      0,
-    assnRef:          allotted[qi_],
+    assnRef:          assn_,
     questSecs:        0,
     questPhaseOffset: 0,
     panelOpen:        false,
