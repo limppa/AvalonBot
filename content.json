@@ -5,6 +5,7 @@
     "Assassin": "Tries to identify Merlin",
     "Morgana":  "Appears as Merlin to Percival",
     "Oberon":   "Unknown to Evil and doesn't know them",
-    "Mordred":  "Hidden from Merlin"
+    "Mordred":  "Hidden from Merlin",
+    "Lady of the Lake": "Checks player's true loyalty"
   }
 }

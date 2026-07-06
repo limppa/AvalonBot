@@ -90,11 +90,16 @@ const QUEST_ALLOTTED_LOTL = [246, 321, 486, 561, 636]
 const ASSN_QUEST_INDEX = { saga: 2, slow: 2, normal: 2, fast: 1, speedrun: 0 }
 
 // ── Assassination time formula (pool/evil-share based) ───────────────────────
-// Not yet wired in anywhere — see calcAssnFraction() in renderer.js.
+// Used by calcAssnFraction() in renderer.js, wired into calcDiscussionBudget() and newGame().
 // ASSN_POOL_REF: median (good-players + Oberon-in-play) pool across default 5-10p configs.
 // ASSN_EVIL_PCT_REF: evil-player share at 8 players, used as the reference share.
 const ASSN_POOL_REF     = 5
 const ASSN_EVIL_PCT_REF = 3 / 8
+
+// Oberon is not known by Evil, and is therefore a part of the "potential Merlin"
+// pool. He counts as 0.5 because it is easier for Evil to discount him as Merlin
+// compared to a Good player.
+const OBERON_POOL_WEIGHT = 0.5
 
 // ── Quest card-play time (seconds) per team size, by speed ───────────────────
 // All speeds use +10s per extra player. Controls the outer-ring card timer.
@@ -143,6 +148,7 @@ module.exports = {
   ASSN_QUEST_INDEX,
   ASSN_POOL_REF,
   ASSN_EVIL_PCT_REF,
+  OBERON_POOL_WEIGHT,
   QUEST_CARD_TIME,
   SPEED_ANCHOR_7P,
   DISCUSSION_RATE,

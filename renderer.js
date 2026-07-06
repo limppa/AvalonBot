@@ -14,6 +14,7 @@ const {
   ASSN_QUEST_INDEX,
   ASSN_POOL_REF,
   ASSN_EVIL_PCT_REF,
+  OBERON_POOL_WEIGHT,
   QUEST_CARD_TIME,
   SPEED_ANCHOR_7P,
   DISCUSSION_RATE,
@@ -32,6 +33,7 @@ const THEME = (() => {
     bg:         v('--bg0'),
     bgRaised:   v('--bg1'),
     stone:      v('--stone'),
+    coin:       v('--coin'),
     accent:     v('--accent'),
     accentDim:  v('--accent-dim'),
     accentBrt:  v('--accent-brt'),
@@ -215,12 +217,12 @@ function buildTeamRoles(players, characters) {
 }
 
 // Fraction of the Q1-Q5 discussion budget that Assassination takes.
-// Not yet called anywhere — added standalone first to confirm it doesn't break the app.
+// Used by calcDiscussionBudget() and newGame() to split available time between quests and Assassination.
 // assnFraction = 0.10 × poolFactor × evilFactor
 function calcAssnFraction() {
   const evilCount   = settings.players <= 6 ? 2 : settings.players <= 9 ? 3 : 4
   const goodCount   = settings.players - evilCount
-  const pool        = goodCount + (settings.characters.oberon ? 1 : 0)
+  const pool        = goodCount + (settings.characters.oberon ? OBERON_POOL_WEIGHT : 0)
   const poolFactor  = Math.sqrt(pool / ASSN_POOL_REF)
   const evilPct     = evilCount / settings.players
   const evilFactor  = ASSN_EVIL_PCT_REF / evilPct
@@ -370,6 +372,7 @@ function newGame(players = settings.players) {
     questSecs:        0,
     questPhaseOffset: 0,
     panelOpen:        false,
+    lotlPromptActive: false,
   }
 }
 
@@ -377,6 +380,9 @@ let gs = newGame()
 let sidebarAnimatePending  = false
 let _prevPanelOpen         = false
 let _charPanelFingerprint  = ''
+let _lotlPromptTimer       = null
+let _lotlFlipTimers        = []
+let _lotlRepeatTimer       = null
 
 // ── Second ticker ────────────────────────────────────────────────────────────
 
@@ -411,7 +417,10 @@ function questCardRef(teamSize) {
 
 // state: 'pending' | 'voting' | 'card' | 'resolved-success' | 'resolved-fail'
 // opts: { votingElapsed, votingRef, cardElapsed, cardRef }
-function drawArc(canvas, state, playerCount, opts = {}) {
+// layer: 'all' | 'outer' | 'inner' — the coin flip splits the circle across two
+//   canvases: a static base ('outer' ring/timer) and a flipping face ('inner'
+//   disc: voting pie, hole, spokes). 'all' renders both onto one canvas.
+function drawArc(canvas, state, playerCount, opts = {}, layer = 'all') {
   const {
     votingElapsed = 0,
     votingRef     = 300,
@@ -426,124 +435,146 @@ function drawArc(canvas, state, playerCount, opts = {}) {
   const isResolved = state === 'resolved-success' || state === 'resolved-fail'
   const showCard   = state === 'card' || isResolved
   const isPending  = state === 'pending'
+  const drawOuter  = layer === 'all' || layer === 'outer'
+  const drawInner  = layer === 'all' || layer === 'inner'
 
-  // Full background disc (covers inner + gap + outer ring area)
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, OUTER_R_OUT, 0, TAU)
-  ctx.fillStyle = THEME.bg
-  ctx.fill()
-
-
-  // Inner ring: voting time arc (accent → warn overtime)
-  if (!isPending && votingElapsed > 0) {
-    const frac = Math.min(votingElapsed / votingRef, 1)
+  // Everything except the donut-hole fill lives on the outer/base layer. Only the
+  // innermost circle (the hole) sits on the flipping inner face, so the voting
+  // ring, spokes and outer ring all stay static while the hole flips.
+  if (drawOuter) {
+    // Background disc (covers inner + gap + outer ring area)
     ctx.beginPath()
-    ctx.moveTo(ARC_CX, ARC_CY)
-    ctx.arc(ARC_CX, ARC_CY, ARC_R, -PI / 2, -PI / 2 + frac * TAU)
-    ctx.closePath()
-    ctx.fillStyle = THEME.accent
+    ctx.arc(ARC_CX, ARC_CY, OUTER_R_OUT, 0, TAU)
+    ctx.fillStyle = THEME.bg
     ctx.fill()
 
-    if (votingElapsed > votingRef) {
-      const otFrac = Math.min((votingElapsed - votingRef) / votingRef, 1)
+    // Inner ring: voting time arc (accent → warn overtime)
+    if (!isPending && votingElapsed > 0) {
+      const frac = Math.min(votingElapsed / votingRef, 1)
       ctx.beginPath()
       ctx.moveTo(ARC_CX, ARC_CY)
-      ctx.arc(ARC_CX, ARC_CY, ARC_R, -PI / 2, -PI / 2 + otFrac * TAU)
+      ctx.arc(ARC_CX, ARC_CY, ARC_R, -PI / 2, -PI / 2 + frac * TAU)
       ctx.closePath()
-      ctx.fillStyle = THEME.warn
+      ctx.fillStyle = THEME.accent
       ctx.fill()
+
+      if (votingElapsed > votingRef) {
+        const otFrac = Math.min((votingElapsed - votingRef) / votingRef, 1)
+        ctx.beginPath()
+        ctx.moveTo(ARC_CX, ARC_CY)
+        ctx.arc(ARC_CX, ARC_CY, ARC_R, -PI / 2, -PI / 2 + otFrac * TAU)
+        ctx.closePath()
+        ctx.fillStyle = THEME.warn
+        ctx.fill()
+      }
     }
+
+    // Punch a dark socket so the base reads as a donut on its own AND gives the
+    // flip contrast — the coin-colored face sits on top of this darker background,
+    // so mid-flip the dark socket shows through and the turn reads with depth.
+    ctx.beginPath()
+    ctx.arc(ARC_CX, ARC_CY, ARC_HOLE, 0, TAU)
+    ctx.fillStyle = THEME.bg
+    ctx.fill()
+
+    // The donut-timer edges (inner ring at 105, hole ring at 77, spokes) are drawn
+    // as a static SVG overlay (.q-donut) so their colour can CSS-transition
+    // together — canvas pixels can't be transitioned.
   }
 
-  // Donut hole — outcome color only appears here for resolved quests
-  const holeFill = state === 'resolved-success' ? THEME.goodFill
-                 : state === 'resolved-fail'    ? THEME.evilFill
-                 : THEME.bg
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, ARC_HOLE, 0, TAU)
-  ctx.fillStyle = holeFill
-  ctx.fill()
-
-  // Ring border + divider color — outcome only expressed in hole fill, not borders
-  const edgeColor = isPending ? THEME.stone : THEME.accentDim
-
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, ARC_R, 0, TAU)
-  ctx.strokeStyle = edgeColor; ctx.lineWidth = 2; ctx.stroke()
-
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, ARC_HOLE, 0, TAU)
-  ctx.strokeStyle = edgeColor; ctx.lineWidth = 2; ctx.stroke()
-
-  for (let s = 0; s < 5; s++) {
-    const angle = -PI / 2 + s * TAU / 5
+  if (drawInner) {
+    // Innermost circle: the donut-hole face that flips. Opaque so it reads as a
+    // coin side; outcome color appears here for resolved quests.
+    const holeFill = state === 'resolved-success' ? THEME.goodFill
+                   : state === 'resolved-fail'    ? THEME.evilFill
+                   : THEME.coin
     ctx.beginPath()
-    ctx.moveTo(ARC_CX + (ARC_HOLE + 3) * Math.cos(angle), ARC_CY + (ARC_HOLE + 3) * Math.sin(angle))
-    ctx.lineTo(ARC_CX + (ARC_R    - 3) * Math.cos(angle), ARC_CY + (ARC_R    - 3) * Math.sin(angle))
-    ctx.strokeStyle = edgeColor; ctx.lineWidth = 2; ctx.stroke()
+    ctx.arc(ARC_CX, ARC_CY, ARC_HOLE, 0, TAU)
+    ctx.fillStyle = holeFill
+    ctx.fill()
   }
 
-
-  // Outer ring: dark track (always visible as a slot)
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, OUTER_MID, 0, TAU)
-  ctx.strokeStyle = THEME.stone; ctx.lineWidth = OUTER_W; ctx.stroke()
-
-  // Outer ring: card time arc fill (accent → warn overtime)
-  if (showCard && cardElapsed > 0) {
-    const frac = Math.min(cardElapsed / cardRef, 1)
+  if (drawOuter) {
+    // Outer ring: dark track (always visible as a slot)
     ctx.beginPath()
-    ctx.arc(ARC_CX, ARC_CY, OUTER_MID, -PI / 2, -PI / 2 + frac * TAU)
-    ctx.strokeStyle = THEME.accent; ctx.lineWidth = OUTER_W; ctx.stroke()
+    ctx.arc(ARC_CX, ARC_CY, OUTER_MID, 0, TAU)
+    ctx.strokeStyle = THEME.stone; ctx.lineWidth = OUTER_W; ctx.stroke()
 
-    if (cardElapsed > cardRef) {
-      const otFrac = Math.min((cardElapsed - cardRef) / cardRef, 1)
+    // Outer ring: card time arc fill (accent → warn overtime)
+    if (showCard && cardElapsed > 0) {
+      const frac = Math.min(cardElapsed / cardRef, 1)
       ctx.beginPath()
-      ctx.arc(ARC_CX, ARC_CY, OUTER_MID, -PI / 2, -PI / 2 + otFrac * TAU)
-      ctx.strokeStyle = THEME.warn; ctx.lineWidth = OUTER_W; ctx.stroke()
+      ctx.arc(ARC_CX, ARC_CY, OUTER_MID, -PI / 2, -PI / 2 + frac * TAU)
+      ctx.strokeStyle = THEME.accent; ctx.lineWidth = OUTER_W; ctx.stroke()
+
+      if (cardElapsed > cardRef) {
+        const otFrac = Math.min((cardElapsed - cardRef) / cardRef, 1)
+        ctx.beginPath()
+        ctx.arc(ARC_CX, ARC_CY, OUTER_MID, -PI / 2, -PI / 2 + otFrac * TAU)
+        ctx.strokeStyle = THEME.warn; ctx.lineWidth = OUTER_W; ctx.stroke()
+      }
     }
+
+    // Outer ring border lines
+    ctx.beginPath()
+    ctx.arc(ARC_CX, ARC_CY, OUTER_R_OUT, 0, TAU)
+    ctx.strokeStyle = THEME.stone; ctx.lineWidth = 1; ctx.stroke()
+
+    ctx.beginPath()
+    ctx.arc(ARC_CX, ARC_CY, OUTER_R_IN, 0, TAU)
+    ctx.strokeStyle = THEME.stone; ctx.lineWidth = 1; ctx.stroke()
   }
-
-  // Outer ring border lines
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, OUTER_R_OUT, 0, TAU)
-  ctx.strokeStyle = THEME.stone; ctx.lineWidth = 1; ctx.stroke()
-
-  ctx.beginPath()
-  ctx.arc(ARC_CX, ARC_CY, OUTER_R_IN, 0, TAU)
-  ctx.strokeStyle = THEME.stone; ctx.lineWidth = 1; ctx.stroke()
 }
 
+// Paint a quest's two-canvas circle: the static outer ring (base) and the
+// flipping inner disc (face).
+function paintArc(i, state, size, opts = {}) {
+  const base  = document.getElementById(`arc-${i}`)
+  const inner = document.getElementById(`arcin-${i}`)
+  if (base)  drawArc(base,  state, size, opts, 'outer')
+  if (inner) drawArc(inner, state, size, opts, 'inner')
+}
+
+// Toggle a state class (overtime/warning/locking/…) on both of a quest's canvases
+// so the whole coin reacts as one.
+function toggleArcClass(i, cls, on) {
+  document.getElementById(`arc-${i}`)?.classList.toggle(cls, on)
+  document.getElementById(`arcin-${i}`)?.classList.toggle(cls, on)
+}
+
+// Per-second timer tick. Only the base canvas carries the ticking arcs (voting
+// pie / card ring); the inner hole face and the number are static between events
+// (drawn by renderQuests on A: pending→active, B: vote→card, C: resolve), so the
+// tick never touches them — which also avoids invalidating the flip layer's
+// texture mid-rotation.
 function redrawActiveArc() {
   if (gs.successCount >= 3 || gs.failCount >= 3) return
-  const i      = gs.currentQuest
-  const canvas = document.getElementById(`arc-${i}`)
-  if (!canvas) return
+  const i    = gs.currentQuest
+  const base = document.getElementById(`arc-${i}`)
+  if (!base) return
   const size    = gs.questSizes[i]
   const cardRef = questCardRef(size)
 
   if (gs.voting) {
     const elapsed = phaseElapsed()
     const ref     = phaseRef()
-    drawArc(canvas, 'voting', size, { votingElapsed: elapsed, votingRef: ref })
-    updateArcNum(i, size, 'voting')
+    drawArc(base, 'voting', size, { votingElapsed: elapsed, votingRef: ref }, 'outer')
     const isOT   = elapsed > ref
     const isWarn = !isOT && elapsed / ref >= 0.9
-    canvas.classList.toggle('overtime', isOT)
-    canvas.classList.toggle('warning',  isWarn)
+    toggleArcClass(i, 'overtime', isOT)
+    toggleArcClass(i, 'warning',  isWarn)
   } else {
     const cardElapsed = phaseElapsed()
-    drawArc(canvas, 'card', size, {
+    drawArc(base, 'card', size, {
       votingElapsed: gs.questVotingFrozen[i],
       votingRef:     gs.questAllotted[i],
       cardElapsed,
       cardRef,
-    })
-    updateArcNum(i, size, 'card')
+    }, 'outer')
     const isOT   = cardElapsed > cardRef
     const isWarn = !isOT && cardElapsed / cardRef >= 0.9
-    canvas.classList.toggle('overtime', isOT)
-    canvas.classList.toggle('warning',  isWarn)
+    toggleArcClass(i, 'overtime', isOT)
+    toggleArcClass(i, 'warning',  isWarn)
   }
 }
 
@@ -551,10 +582,14 @@ function updateArcNum(i, playerCount, state) {
   const el = document.getElementById(`arcnum-${i}`)
   if (!el) return
   el.textContent = String(playerCount)
-  el.style.color = state === 'resolved-success' ? THEME.goodText
-                 : state === 'resolved-fail'    ? THEME.evilCircText
-                 : state === 'pending'          ? THEME.dim
-                 : THEME.cream
+  const color = state === 'resolved-success' ? THEME.goodText
+              : state === 'resolved-fail'    ? THEME.evilCircText
+              : state === 'pending'          ? THEME.dim
+              : THEME.cream
+  el.style.color = color
+  // Lady-of-the-Lake teardrop tracks the number's colour exactly (fill: currentColor)
+  const drop = document.getElementById(`lotl-badge-${i}`)
+  if (drop) drop.style.color = color
 }
 
 // ── DOM construction (run once) ──────────────────────────────────────────────
@@ -569,25 +604,117 @@ function buildStaticDOM() {
     bar.append(d)
   }
 
-  // Quest wraps (no q-players — number is drawn inside the canvas)
+  // Quest circles. The circle is split across two stacked layers so only the
+  // inner disc flips on a Lady-of-the-Lake check:
+  //   • base canvas (arc-i)  — static outer ring + timer track + background disc
+  //   • flipper front canvas (arcin-i) + number — the inner disc that flips
+  //   • flipper back — the LotL symbol (Q3/Q4/Q5 only)
   const questRow = document.getElementById('quests')
   for (let i = 0; i < 5; i++) {
     const wrap = document.createElement('div')
     wrap.className = 'q-wrap'
     wrap.id = `qw-${i}`
 
-    const canvas = document.createElement('canvas')
-    canvas.className = 'arc'
-    canvas.id = `arc-${i}`
-    canvas.width  = ARC_SIZE
-    canvas.height = ARC_SIZE
+    // Static base: outer ring + background disc (never flips). In-flow child, so
+    // it also sizes the wrap.
+    const base = document.createElement('canvas')
+    base.className = 'arc arc-base'
+    base.id = `arc-${i}`
+    base.width  = ARC_SIZE
+    base.height = ARC_SIZE
+    wrap.append(base)
+
+    // Flipper overlays the base exactly.
+    const flipper = document.createElement('div')
+    flipper.className = 'q-flipper'
+    flipper.id = `qflip-${i}`
+
+    const front = document.createElement('div')
+    front.className = 'q-face q-front'
+
+    const inner = document.createElement('canvas')
+    inner.className = 'arc arc-inner'
+    inner.id = `arcin-${i}`
+    inner.width  = ARC_SIZE
+    inner.height = ARC_SIZE
 
     const numEl = document.createElement('div')
     numEl.className = 'arc-num'
     numEl.id = `arcnum-${i}`
 
-    wrap.append(canvas)
-    wrap.append(numEl)
+    front.append(inner, numEl)
+
+    // Lady-of-the-Lake teardrop — flat icon inside the hole, left of the number,
+    // on quests 3/4/5. Lives on the front face so it flips with the number.
+    if (i >= 2) {
+      const badge = document.createElement('div')
+      badge.className = 'lotl-badge'
+      badge.id = `lotl-badge-${i}`
+      badge.innerHTML =
+        '<svg class="lotl-drop-svg" viewBox="0 0 24 32">' +
+        '<path d="M12 1 C12 1 4 12 4 20 A8 8 0 1 0 20 20 C20 12 12 1 12 1 Z"/></svg>'
+      front.append(badge)
+    }
+
+    flipper.append(front)
+
+    if (i >= 2) {
+      const back = document.createElement('div')
+      back.className = 'q-face q-back'
+
+      // Background disc (not <img>) so we can zoom the blue past the black margin
+      // in the source PNG, and so a blink sprite can later step the position.
+      const face = document.createElement('div')
+      face.className = 'lotl-face'
+      face.id = `lotl-face-${i}`
+
+      const shimmer = document.createElement('div')
+      shimmer.className = 'lotl-shimmer'
+      shimmer.id = `lotl-shimmer-${i}`
+
+      back.append(face, shimmer)
+      flipper.append(back)
+    }
+
+    wrap.append(flipper)
+
+    // Donut-timer edges (hole ring at 77, inner ring at 105, 5 spokes) as a static
+    // SVG overlay above the flipper, so all three share one stroke colour that can
+    // CSS-transition on activation. Geometry mirrors the old canvas strokes.
+    const SVGNS = 'http://www.w3.org/2000/svg'
+    const donut = document.createElementNS(SVGNS, 'svg')
+    donut.setAttribute('class', 'q-donut')
+    donut.setAttribute('viewBox', `0 0 ${ARC_SIZE} ${ARC_SIZE}`)
+    for (const r of [ARC_HOLE, ARC_R]) {
+      const c = document.createElementNS(SVGNS, 'circle')
+      c.setAttribute('cx', ARC_CX)
+      c.setAttribute('cy', ARC_CY)
+      c.setAttribute('r', r)
+      donut.append(c)
+    }
+    for (let s = 0; s < 5; s++) {
+      const a = -PI / 2 + s * TAU / 5
+      const ln = document.createElementNS(SVGNS, 'line')
+      ln.setAttribute('x1', ARC_CX + (ARC_HOLE + 3) * Math.cos(a))
+      ln.setAttribute('y1', ARC_CY + (ARC_HOLE + 3) * Math.sin(a))
+      ln.setAttribute('x2', ARC_CX + (ARC_R    - 3) * Math.cos(a))
+      ln.setAttribute('y2', ARC_CY + (ARC_R    - 3) * Math.sin(a))
+      donut.append(ln)
+    }
+    wrap.append(donut)
+
+    // Quest 4 needs two fails at 7+ players — static arced label above the circle.
+    if (i === 3) {
+      const twoFail = document.createElement('div')
+      twoFail.className = 'q4-twofail'
+      twoFail.id = 'q4-twofail'
+      twoFail.innerHTML =
+        '<svg viewBox="0 0 240 100" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><path id="q4-arc-path" d="M 22,94 Q 120,14 218,94"/></defs>' +
+        '<text><textPath href="#q4-arc-path" startOffset="50%" text-anchor="middle">' +
+        'Two fails required</textPath></text></svg>'
+      wrap.append(twoFail)
+    }
 
     const slot = document.createElement('div')
     slot.className = 'q-arc-slot'
@@ -794,7 +921,7 @@ function buildLogHTML() {
     </div>`
 
   return `
-    <div class="log-header">Log this game</div>
+    <div class="log-header grad-title">Log this game</div>
     <div class="log-rule"></div>
     ${characterSection}
     <div class="log-sep"></div>
@@ -831,6 +958,8 @@ function render() {
   renderPhaseStatus()
   renderScrollQuote()
   renderQuests()
+  renderLotlIndicators()
+  renderLotlBanner()
   renderVoteTrack()
   renderCharPanel()
   renderSplitPanel()
@@ -1251,12 +1380,17 @@ function buildQuoteWavePath() {
   const bestSize = BASE_SIZE
   // Scroll images sit on top (z-index 4), hiding the seam — no need to align
   // the right edge to a wave zero-crossing, so use exact measured width.
-  const bestW    = Math.ceil(measured + 4)   // +4 px safety buffer
+  const textW  = Math.ceil(measured + 4)   // +4 px safety buffer — tight fit around the text
+  const END_PAD = 14                       // extra blank scroll between text and the right cap
+  const bestW  = textW + END_PAD
 
   // Apply font size and rect width
   tp.parentElement.setAttribute('font-size', bestSize)
   rect.style.width    = bestW + 'px'
   rect.style.minWidth = 'unset'
+  // Anchor text at the tight-fit centre (not bestW's centre) so the extra
+  // END_PAD only opens up space on the right, before the scroll cap.
+  tp.setAttribute('startOffset', textW / 2)
 
   // Dynamic right margin: find the overlap value (in [0, rightImgW]) that places
   // the right junction at a wave zero-crossing (x % 72 = 0), so the parchment
@@ -1299,7 +1433,8 @@ function buildQuoteWavePath() {
     textSvg.setAttribute('height', '100')
   }
 
-  // Build wave path — stop at exactly bestW so startOffset="50%" centres text.
+  // Build wave path — runs the full padded bestW; text stops short of the end
+  // because startOffset is pinned to textW's centre (see above), leaving END_PAD blank.
   const f = n => n.toFixed(1)
   let d = `M 0,${Y}`
   for (let x = 0; x + PERIOD <= bestW; x += PERIOD) {
@@ -1311,7 +1446,9 @@ function buildQuoteWavePath() {
 }
 
 function resetTimerBar() {
-  document.getElementById('timer-fill').style.width     = '0%'
+  const fill = document.getElementById('timer-fill')
+  fill.style.width = '0%'
+  fill.style.animationPlayState = ''   // resume shimmer (in case a death card paused it)
   document.getElementById('timer-overtime').style.width = '0%'
 }
 
@@ -1389,7 +1526,7 @@ function renderOverlay() {
         { key: 'start',     label: 'START GAME',        value: '▸', isOn: true },
       ]
       setBody('menu-main', `
-        <div class="ov-title">Avalon</div>
+        <div class="ov-title grad-title">Avalon</div>
         <div class="ov-rule" style="margin:20px 0"></div>
         <div class="menu-settings">${buildMenuHTML(rowDefs)}</div>
       `)
@@ -1409,7 +1546,7 @@ function renderOverlay() {
         { key: 'back',     label: '← back',   value: '' },
       ]
       setBody('menu-chars', `
-        <div class="ov-title" style="font-family:'Franken',Georgia,serif; font-size:56px; letter-spacing:2px">Characters</div>
+        <div class="ov-title grad-title" style="font-family:'Franken',Georgia,serif; font-size:56px; letter-spacing:2px">Characters</div>
         <div class="ov-rule" style="margin:16px 0"></div>
         <div class="menu-settings">${buildMenuHTML(rowDefs)}</div>
       `)
@@ -1420,7 +1557,7 @@ function renderOverlay() {
     overlay.classList.remove('hidden')
     overlay.classList.add('overlay-raised')
     setBody('night', `
-      <div class="ov-title" style="font-family:'Franken',Georgia,serif; font-size:120px; letter-spacing:4px; color:var(--accent)">Night phase</div>
+      <div class="ov-title grad-title" style="font-family:'Franken',Georgia,serif; font-size:120px; letter-spacing:4px">Night phase</div>
       <div class="ov-rule"></div>
       <div class="ov-body">
         Memorise your character card.<br>
@@ -1429,7 +1566,7 @@ function renderOverlay() {
         Listen for further instructions.
       </div>
     `)
-    hint.textContent = '[ENTER] when eyes are closed and fists raised'
+    hint.textContent = '[ENTER] continue'
 
   } else if (gs.phase === 'log') {
     overlay.classList.remove('hidden')
@@ -1518,11 +1655,12 @@ function renderOverlay() {
 
 function renderQuests() {
   for (let i = 0; i < 5; i++) {
-    const canvas  = document.getElementById(`arc-${i}`)
     const wrap    = document.getElementById(`qw-${i}`)
     const res     = gs.results[i]
     const isCurr  = (i === gs.currentQuest) && gs.phase === 'game' && gs.successCount < 3 && gs.failCount < 3
     wrap.classList.toggle('current', isCurr)
+    // Pending = neither resolved nor active; its donut edges (and hole rim) are stone.
+    wrap.classList.toggle('q-pending', !gs.results[i] && !isCurr)
     const size    = gs.questSizes[i]
     const cardRef = questCardRef(size)
 
@@ -1530,15 +1668,16 @@ function renderQuests() {
       const state = `resolved-${res}`
       if (!wrap.classList.contains('locked') && !wrap.classList.contains('locking')) {
         wrap.classList.add('locking')
-        canvas.classList.add('locking')
+        toggleArcClass(i, 'locking', true)
         setTimeout(() => {
           wrap.classList.remove('locking')
-          canvas.classList.remove('locking')
+          toggleArcClass(i, 'locking', false)
           wrap.classList.add('locked')
         }, 850)
       }
-      canvas.classList.remove('overtime', 'warning')
-      drawArc(canvas, state, size, {
+      toggleArcClass(i, 'overtime', false)
+      toggleArcClass(i, 'warning',  false)
+      paintArc(i, state, size, {
         votingElapsed: gs.questVotingFrozen[i],
         votingRef:     gs.questAllotted[i],
         cardElapsed:   gs.questTimes[i],
@@ -1548,13 +1687,13 @@ function renderQuests() {
     } else if (isCurr) {
       wrap.classList.remove('locked')
       if (gs.voting) {
-        drawArc(canvas, 'voting', size, {
+        paintArc(i, 'voting', size, {
           votingElapsed: phaseElapsed(),
           votingRef:     phaseRef(),
         })
         updateArcNum(i, size, 'voting')
       } else {
-        drawArc(canvas, 'card', size, {
+        paintArc(i, 'card', size, {
           votingElapsed: gs.questVotingFrozen[i],
           votingRef:     gs.questAllotted[i],
           cardElapsed:   phaseElapsed(),
@@ -1564,10 +1703,96 @@ function renderQuests() {
       }
     } else {
       wrap.classList.remove('locked')
-      drawArc(canvas, 'pending', size)
+      paintArc(i, 'pending', size)
       updateArcNum(i, size, 'pending')
     }
   }
+
+  // Q4 needs two fails at 7+ players — persist through assassination with the drops.
+  document.getElementById('q4-twofail')
+    ?.classList.toggle('visible', gs.players >= 7 && (gs.phase === 'game' || gs.phase === 'assassination'))
+}
+
+// Lady of the Lake is a passive, no-input indicator: a teardrop inside the hole
+// of quests 3/4/5 (its colour tracks the number via updateArcNum). When a check
+// comes into play the circle flips to the symbol side, shimmers, then flips back,
+// and the banner prompt appears (see scheduleLotlPrompt / triggerCoinFlip).
+function renderLotlIndicators() {
+  // Keep the drop icons visible through assassination, alongside the quest circles.
+  const on = settings.abilities.lotl && (gs.phase === 'game' || gs.phase === 'assassination')
+  document.getElementById('quests').classList.toggle('lotl-on', on)
+}
+
+function renderLotlBanner() {
+  const el = document.getElementById('lotl-banner')
+  if (!el) return
+  const show = settings.abilities.lotl && gs.phase === 'game' && gs.lotlPromptActive
+  el.classList.toggle('visible', show)
+  if (show) el.textContent = "Use Lady of the Lake to check one player's loyalty"
+}
+
+// Coin-flip timing (ms)
+const LOTL_FLIP_MS    = 750   // rotate to / from the symbol side
+const LOTL_SHIMMER_MS = 2000  // shimmer hold while the symbol side is showing
+
+const LOTL_REPEAT_MS = 15000  // re-run the flip + shimmer every 15s until first vote
+
+// True while the prompt should be live: still on this quest, voting, no outcome yet.
+function isLotlPromptLive(qi) {
+  return gs.phase === 'game' && gs.currentQuest === qi && gs.voting && gs.voteCount === 0
+}
+
+// Called from resolveQuest when Q3/Q4/Q5 comes into play. Waits for the new
+// quest circle's tween to finish, then runs the coin flip and shows the prompt,
+// repeating the flip + shimmer every 15s until the players enter a vote outcome —
+// unless one is already in before the initial delay elapses.
+function scheduleLotlPrompt(qi) {
+  if (_lotlPromptTimer) clearTimeout(_lotlPromptTimer)
+  if (_lotlRepeatTimer) { clearInterval(_lotlRepeatTimer); _lotlRepeatTimer = null }
+  _lotlPromptTimer = setTimeout(() => {
+    _lotlPromptTimer = null
+    if (!isLotlPromptLive(qi)) return
+    gs.lotlPromptActive = true
+    renderLotlBanner()
+    triggerCoinFlip(qi)
+    _lotlRepeatTimer = setInterval(() => {
+      if (isLotlPromptLive(qi)) triggerCoinFlip(qi)
+      else dismissLotlPrompt()
+    }, LOTL_REPEAT_MS)
+  }, 1000)  // matches the .q-wrap.current tween (0.5s delay + 0.5s)
+}
+
+// Flip the quest circle to the LotL symbol, shimmer, then flip back.
+function triggerCoinFlip(qi) {
+  const flipper = document.getElementById(`qflip-${qi}`)
+  if (!flipper) return
+  _lotlFlipTimers.forEach(clearTimeout)  // clear any stragglers before re-arming
+  _lotlFlipTimers = []
+  const sh = document.getElementById(`lotl-shimmer-${qi}`)
+  flipper.classList.add('lotl-flip')
+  // Kick off the shimmer once the symbol side is facing the viewer.
+  _lotlFlipTimers.push(setTimeout(() => {
+    if (sh) { sh.classList.remove('go'); void sh.offsetWidth; sh.classList.add('go') }
+  }, LOTL_FLIP_MS))
+  // Flip back once the shimmer has run its course.
+  _lotlFlipTimers.push(setTimeout(() => endCoinFlip(qi), LOTL_FLIP_MS + LOTL_SHIMMER_MS))
+}
+
+function endCoinFlip(qi) {
+  const flipper = document.getElementById(`qflip-${qi}`)
+  if (flipper) flipper.classList.remove('lotl-flip')
+  const sh = document.getElementById(`lotl-shimmer-${qi}`)
+  if (sh) sh.classList.remove('go')
+}
+
+// The prompt clears the moment the players enter their first vote outcome.
+function dismissLotlPrompt() {
+  if (_lotlPromptTimer) { clearTimeout(_lotlPromptTimer); _lotlPromptTimer = null }
+  if (_lotlRepeatTimer) { clearInterval(_lotlRepeatTimer); _lotlRepeatTimer = null }
+  _lotlFlipTimers.forEach(clearTimeout)
+  _lotlFlipTimers = []
+  for (let i = 2; i < 5; i++) endCoinFlip(i)
+  if (gs.lotlPromptActive) { gs.lotlPromptActive = false; renderLotlBanner() }
 }
 
 function renderVoteTrack() {
@@ -1665,6 +1890,17 @@ function renderCharPanel() {
         nameDiv.className = 'cp-name cp-ability-name'
         nameDiv.textContent = name
         entry.append(nameDiv)
+        const desc = charDesc(name)
+        if (desc) {
+          entry.classList.add('cp-has-desc')
+          const wrap = document.createElement('div')
+          wrap.className = 'cp-descs-wrap'
+          const descEl = document.createElement('div')
+          descEl.className = 'cp-desc'
+          descEl.textContent = desc
+          wrap.append(descEl)
+          entry.append(wrap)
+        }
         abilityEl.append(entry)
       }
     } else {
@@ -1699,7 +1935,6 @@ function renderPhaseStatus() {
   if (gs.phase === 'game') {
     const q = gs.currentQuest + 1
     el.textContent = gs.voting ? `Quest ${q}: Choose a team` : `Quest ${q}: Play your cards`
-    el.style.color = gs.voting ? 'var(--accent)' : 'var(--cream)'
   } else {
     el.textContent = ''
   }
@@ -1719,7 +1954,7 @@ function renderHint() {
     }
   } else if (gs.phase === 'assassination') {
     el.innerHTML =
-      '<span class="hint-key">[G] Merlin survives / [E] Merlin assassinated</span>'
+      '<span class="hint-key">[E] Evil wins&nbsp;&nbsp;&nbsp;[G] Good wins</span>'
   } else {
     el.innerHTML = ''
   }
@@ -1728,14 +1963,22 @@ function renderHint() {
 function renderModal() {
   const modal = document.getElementById('game-modal')
   const box   = document.getElementById('gm-box')
+  const death = document.getElementById('death-overlay')
+
+  // Assassination path: the "MERLIN DIED" card (driven by playMerlinDeath)
+  // is the whole win screen — no modal.
+  if (gs.phase === 'win' && gs.merlin === 'died') {
+    modal.classList.add('hidden')
+    return
+  }
+  // Any other screen: ensure a lingering death card is cleared.
+  if (death) death.classList.add('hidden')
 
   if (gs.phase === 'win') {
     modal.classList.remove('hidden')
-    const evil   = gs.failCount >= 3 || gs.merlin === 'died'
+    const evil   = gs.failCount >= 3
     const time   = fmt(gs.totalSecs)
-    const reason = evil
-      ? (gs.merlin === 'died' ? 'Merlin was found.' : 'Three quests failed.')
-      : 'Merlin remains hidden.'
+    const reason = evil ? 'Three quests failed.' : 'Merlin remains hidden.'
     const title  = evil ? 'Evil triumphs' : 'Goodness prevails'
     box.className = `gm-box ${evil ? 'evil-win' : 'good-win'}`
     box.innerHTML = `
@@ -1752,12 +1995,60 @@ function renderModal() {
   }
 }
 
+// True once [ESC] has dismissed the death card to reveal the frozen screen.
+// A second [ESC] then quits, rather than re-fading.
+let _merlinUnfaded = false
+
+// Dark-Souls-style "MERLIN DIED" card. This IS the final screen on the
+// assassination path — it fades in and stays up until [ENTER] → log.
+function playMerlinDeath() {
+  const overlay = document.getElementById('death-overlay')
+  const text    = document.getElementById('death-text')
+  const hint    = document.getElementById('death-hint')
+  if (!overlay) return
+
+  const EASE = 'cubic-bezier(.22,.61,.36,1)'
+  _merlinUnfaded = false
+
+  // Cancel any leftover animations, then reset to the pre-fade base state
+  // synchronously so the text can't flash its previous end-state for a frame.
+  ;[overlay, text, hint].forEach(el => el.getAnimations().forEach(a => a.cancel()))
+  overlay.classList.remove('hidden', 'unfaded')
+  hint.style.opacity = ''
+  hint.innerHTML = '[ENTER] Continue&nbsp;&nbsp;&nbsp;&nbsp;[ESC] Return'
+
+  // Freeze the top-bar shimmer so the whole frame is fully static.
+  document.getElementById('timer-fill').style.animationPlayState = 'paused'
+
+  // 1. screen darkens ('both' so it holds opacity 0 before it starts)
+  overlay.animate([{ opacity: 0 }, { opacity: 1 }],
+    { duration: 1800, easing: EASE, fill: 'both' })
+
+  // 2. text resolves from soft+zoomed to sharp ('both' holds the hidden first
+  //    keyframe through the delay, preventing a one-frame flash)
+  text.animate(
+    [{ opacity: 0, transform: 'scale(1.15)', filter: 'blur(6px)' },
+     { opacity: 1, transform: 'scale(1)',    filter: 'blur(0px)' }],
+    { duration: 2800, delay: 500, easing: EASE, fill: 'both' })
+
+  // 3. the [ENTER] Continue hint fades in once the card has settled
+  hint.animate([{ opacity: 0 }, { opacity: 1 }],
+    { duration: 1800, delay: 3600, easing: 'ease-out', fill: 'both' })
+}
+
 function renderAssassinationArea() {
   const header    = document.getElementById('assassination-header')
   const voteArea  = document.getElementById('vote-area')
   const questArea = document.getElementById('quest-area')
-  if (gs.phase === 'assassination') {
-    voteArea.style.display = 'none'
+  // The frozen "MERLIN DIED" screen keeps the assassination layout underneath.
+  const keepAssnLayout = gs.phase === 'assassination' ||
+                         (gs.phase === 'win' && gs.merlin === 'died')
+  const votes = document.getElementById('votes')
+  if (keepAssnLayout) {
+    // Keep vote-area visible so the bottom #hint bar can show the assassination
+    // guide, but hide the stale vote dots from the last quest.
+    voteArea.style.display = ''
+    votes.style.display = 'none'
     if (!header.classList.contains('visible')) {
       header.innerHTML = `
         <div class="assn-title">Assassination</div>
@@ -1772,6 +2063,7 @@ function renderAssassinationArea() {
     header.classList.remove('visible')
     questArea.classList.remove('assn-pushed')
     voteArea.style.display = ''
+    votes.style.display = ''
   }
 }
 
@@ -1874,9 +2166,42 @@ function fmt(secs) {
 
 // ── Input ────────────────────────────────────────────────────────────────────
 
+// [Q] opens a quit-to-desktop prompt from anywhere (except while typing in a
+// text field). While it's open it swallows all other input. Escape is now a
+// contextual "back" that never quits.
+let quitPromptOpen = false
+
+function isTypingInField() {
+  const el = document.activeElement
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+}
+function openQuitPrompt() {
+  quitPromptOpen = true
+  document.getElementById('quit-modal').classList.remove('hidden')
+}
+function closeQuitPrompt() {
+  quitPromptOpen = false
+  document.getElementById('quit-modal').classList.add('hidden')
+}
+
 document.addEventListener('keydown', e => {
   if (e.repeat) return
-  // Escape from characters submenu goes back; from log screen goes back to win; otherwise close window
+
+  // Quit prompt has top priority: it swallows all input while open.
+  if (quitPromptOpen) {
+    e.preventDefault()
+    if (e.key === 'q' || e.key === 'Q' || e.key === 'Enter') window.close()
+    else if (e.key === 'Escape') closeQuitPrompt()
+    return
+  }
+  // [Q] opens it — anywhere except while typing a name/target during logging.
+  if ((e.key === 'q' || e.key === 'Q') && !isTypingInField()) {
+    e.preventDefault()
+    openQuitPrompt()
+    return
+  }
+
+  // Escape = contextual "back" (quitting is [Q] now).
   if (e.key === 'Escape') {
     if (gs.phase === 'menu' && settings.menuPage === 'characters') {
       e.preventDefault()
@@ -1892,8 +2217,22 @@ document.addEventListener('keydown', e => {
       renderModal()
       return
     }
-    window.close()
-    return
+    // MERLIN DIED screen: Escape dismisses the dark fade to reveal the frozen
+    // game screen with an [ENTER] Log guide.
+    if (gs.phase === 'win' && gs.merlin === 'died' && !_merlinUnfaded) {
+      e.preventDefault()
+      _merlinUnfaded = true
+      const overlay = document.getElementById('death-overlay')
+      const hint    = document.getElementById('death-hint')
+      overlay.classList.add('unfaded')
+      hint.getAnimations().forEach(a => a.cancel())
+      hint.style.opacity = '1'
+      hint.innerHTML = '[ENTER] Log'
+      // Clear the frozen assassination guide so it doesn't sit under [ENTER] Log.
+      document.getElementById('hint').innerHTML = ''
+      return
+    }
+    return   // Escape no longer quits
   }
 
   if (e.key === 'c' || e.key === 'C') {
@@ -1981,6 +2320,8 @@ document.addEventListener('keydown', e => {
 
   } else if (gs.phase === 'game') {
     if (gs.voting) {
+      // First vote outcome (pass or reject) clears the Lady-of-the-Lake prompt.
+      if (e.key === 's' || e.key === 'S' || e.key === 'f' || e.key === 'F') dismissLotlPrompt()
       if (e.key === 's' || e.key === 'S') {
         const qi = gs.currentQuest
         gs.voting                = false
@@ -1992,16 +2333,15 @@ document.addEventListener('keydown', e => {
         renderQuests()
         renderHint()
         const wrap   = document.getElementById(`qw-${qi}`)
-        const arcEl  = document.getElementById(`arc-${qi}`)
         if (wrap) {
           wrap.classList.remove('vote-locking')
-          if (arcEl) arcEl.classList.remove('vote-locking')
+          toggleArcClass(qi, 'vote-locking', false)
           void wrap.offsetWidth
           wrap.classList.add('vote-locking')
-          if (arcEl) arcEl.classList.add('vote-locking')
+          toggleArcClass(qi, 'vote-locking', true)
           setTimeout(() => {
             wrap.classList.remove('vote-locking')
-            if (arcEl) arcEl.classList.remove('vote-locking')
+            toggleArcClass(qi, 'vote-locking', false)
           }, 600)
         }
         logEvent(`Q${qi + 1} vote pass`)
@@ -2053,11 +2393,20 @@ document.addEventListener('keydown', e => {
       gameLogs.save()
       music.playPreloaded('b', { fallbackFolder: 'Evil songs' })
       logEvent('Merlin killed')
-      render()
+      // Deliberately skip render() so the assassination frame stays frozen
+      // underneath — the death card just fades in over it.
+      playMerlinDeath()
     }
 
   } else if (gs.phase === 'win') {
-    if (e.key === 'Enter') {
+    // MERLIN DIED screen: [ENTER] (or L) → log, from faded or unfaded state.
+    // ([ESC] toggling the fade is handled in the top-level Escape block.)
+    if (gs.merlin === 'died') {
+      if (e.key === 'Enter' || e.key === 'l' || e.key === 'L') {
+        gs.phase = 'log'
+        render()
+      }
+    } else if (e.key === 'Enter') {
       settings.menuRow  = 0
       settings.menuPage = 'main'
       gs = newGame(gs.players)
@@ -2121,8 +2470,8 @@ function resolveQuest(result) {
   }
   // ────────────────────────────────────────────────────────────────────────
 
-  const arcEl = document.getElementById(`arc-${i}`)
-  if (arcEl) arcEl.classList.remove('overtime', 'warning')
+  toggleArcClass(i, 'overtime', false)
+  toggleArcClass(i, 'warning',  false)
 
   if (result === 'success') gs.successCount++
   else                       gs.failCount++
@@ -2162,6 +2511,11 @@ function resolveQuest(result) {
   music.playPreloaded(_slot, { oneShot: true, nextFolder: _nextRound, fallbackFolder: _fallback })
   logEvent(`Quest ${gs.currentQuest + 1} begins`)
   render()
+
+  // Quests 3/4/5 (index 2/3/4) each carry a Lady-of-the-Lake check at their start.
+  if (settings.abilities.lotl && gs.currentQuest >= 2) {
+    scheduleLotlPrompt(gs.currentQuest)
+  }
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
