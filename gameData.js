@@ -52,21 +52,6 @@ const QUEST_SIZES = {
   10: [3,4,4,5,5],
 }
 
-const TEAM_ROLES = {
-  5:  { good: ['Merlin','Percival','Loyal Servant'],
-        evil: ['Morgana','Assassin'] },
-  6:  { good: ['Merlin','Percival','Loyal Servant','Loyal Servant'],
-        evil: ['Morgana','Assassin'] },
-  7:  { good: ['Merlin','Percival','Loyal Servant','Loyal Servant'],
-        evil: ['Morgana','Assassin','Minion'] },
-  8:  { good: ['Merlin','Percival','Loyal Servant','Loyal Servant','Loyal Servant'],
-        evil: ['Morgana','Assassin','Minion'] },
-  9:  { good: ['Merlin','Percival','Loyal Servant','Loyal Servant','Loyal Servant','Loyal Servant'],
-        evil: ['Morgana','Assassin','Minion'] },
-  10: { good: ['Merlin','Percival','Loyal Servant','Loyal Servant','Loyal Servant','Loyal Servant'],
-        evil: ['Morgana','Assassin','Minion','Minion'] },
-}
-
 const CHAR_DESC = require('./content.json').characterDescriptions
 
 // ── Game speed ───────────────────────────────────────────────────────────────
@@ -143,7 +128,6 @@ const DISCUSSION_RATE = (() => {
 module.exports = {
   QUOTES,
   QUEST_SIZES,
-  TEAM_ROLES,
   CHAR_DESC,
   SPEED_ORDER,
   SPEED_LABELS,

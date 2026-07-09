@@ -4,7 +4,6 @@ const { ipcRenderer } = require('electron')
 const {
   QUOTES,
   QUEST_SIZES,
-  TEAM_ROLES,
   CHAR_DESC,
   SPEED_ORDER,
   SPEED_LABELS,
