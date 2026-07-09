@@ -1,3 +1,8 @@
 node_modules/
 .DS_Store
 logs/
+
+# Audio kept local only — too large / copyrighted to track. music/metadata.json
+# stays tracked so the playlist structure is versioned.
+*.mp3
+*.ogg
