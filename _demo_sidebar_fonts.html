@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Left sidebar — chosen scheme, two header layouts</title>
+<style>
+  @font-face { font-family: 'JetBrains Mono';  src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2'); }
+  @font-face { font-family: 'OptimusPrinceps'; src: url('fonts/OptimusPrincepsSemiBold.ttf') format('truetype'); }
+
+  :root {
+    --bg0: #090c11; --bg1: #04050a;
+    --accent: #b87c28; --accent-brt: #e0a840;
+    --cream: #dcc878; --dim: #5e4818;
+    --sb-val: rgba(255,255,255,0.62); --sb-val2: #b89a50; --sb-key: #906018;
+    --side-border: rgba(255,255,255,0.05);
+    --good-fill: #1c3888; --evil-fill: #801428;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg0); color: var(--cream); }
+  body { padding: 28px 26px 90px; font-family: 'JetBrains Mono', monospace; }
+
+  h1 { font-size: 15px; font-weight: 400; letter-spacing: 2px; color: var(--cream); margin: 0 0 4px; }
+  .sub { font-size: 11px; letter-spacing: 1px; color: #6a6470; margin: 0 0 26px; line-height: 1.7; max-width: 820px; }
+  .sub b { color: var(--sb-val2); }
+
+  .rack { display: flex; gap: 40px; align-items: flex-start; }
+  .col-wrap { flex-shrink: 0; }
+  .col-cap { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #6a6470;
+             text-align: center; margin-bottom: 10px; }
+  .col-cap b { color: var(--accent-brt); }
+
+  /* ── faithful 200px sidebar ── */
+  .sb {
+    width: 200px; background: var(--bg1);
+    border-left: 2px solid var(--side-border); border-right: 2px solid var(--side-border);
+    padding: 22px 0 16px;
+  }
+
+  /* ── TARGET-TOTAL HEADER ── */
+  .tt { padding: 4px 18px 14px; }
+  .tt-label { font-size: 12px; letter-spacing: 3px; color: var(--sb-key); text-align: center; margin-bottom: 8px; }
+
+  /* stacked variant */
+  .tt-elapsed { font-size: 30px; letter-spacing: 1px; color: var(--cream); text-align: center;
+                line-height: 1; font-variant-numeric: tabular-nums; }
+  .tt-of { font-size: 12px; letter-spacing: 1px; color: var(--dim); text-align: center;
+           margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .tt-of b { color: var(--sb-val2); font-weight: 400; }
+
+  /* inline variant */
+  .tt-inline { text-align: center; font-variant-numeric: tabular-nums; line-height: 1; }
+  .tt-inline .big { font-size: 26px; letter-spacing: 1px; color: var(--cream); }
+  .tt-inline .slash { font-size: 20px; color: var(--dim); margin: 0 3px; }
+  .tt-inline .goal { font-size: 20px; letter-spacing: 1px; color: var(--sb-val2); }
+
+  .tt-bar { height: 3px; margin: 12px 4px 0; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .tt-bar > i { display: block; height: 100%; width: 42%; background: linear-gradient(to right, var(--accent), var(--accent-brt)); }
+
+  .sep { height: 1px; margin: 4px 0 8px;
+    background: linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.07) 75%, rgba(255,255,255,0)); }
+
+  /* rows */
+  .wrap { display: grid; grid-template-columns: 1fr auto auto; column-gap: 8px; }
+  .row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: baseline; padding: 7px 18px; }
+  .v { font-size: 15px; color: var(--sb-val); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .s { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  /* row LABELS — OptimusPrinceps for Nite / Q1–Q5 / Assn */
+  .lbl { font-family: 'OptimusPrinceps', Georgia, serif; font-size: 15px; letter-spacing: 1px; color: var(--sb-key); }
+  .lbl.q { font-size: 17px; }
+  .lbl.dim { color: var(--dim); }
+
+  /* target row — label stays MONO */
+  .target { background: rgba(184,124,40,0.06); position: relative; }
+  .target .tk { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .5px; color: var(--sb-key); }
+  .target::before, .target::after { content:''; position:absolute; left:0; right:0; height:1px;
+    background: linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.07) 20%, rgba(255,255,255,0.07) 80%, rgba(255,255,255,0)); }
+  .target::before { top:0; } .target::after { bottom:0; }
+</style>
+</head>
+<body>
+
+  <h1>LEFT SIDEBAR — chosen font scheme, two header layouts</h1>
+  <p class="sub">
+    Both columns use the agreed scheme: everything <b>JetBrains Mono</b>, except the
+    <b>Nite / Q1–Q5 / Assn</b> row labels in <b>OptimusPrinceps</b> (the <b>target:</b> label and all
+    numbers stay mono). They differ only in the header: <b>A</b> stacks elapsed over the target;
+    <b>B</b> puts them inline. Both keep the progress bar.
+  </p>
+
+  <div class="rack" id="rack"></div>
+
+<script>
+  const rows = `
+    <div class="sep"></div>
+    <div class="wrap">
+      <div class="row"><span class="lbl">Nite</span><span class="v" style="color:var(--accent)">03:12</span><span class="s"></span></div>
+      <div class="row"><span class="lbl q" style="color:var(--good-fill)">Q1</span><span class="v" style="color:var(--accent)">04:30</span><span class="s" style="color:var(--accent)">(05:10)</span></div>
+      <div class="row"><span class="lbl q" style="color:var(--evil-fill)">Q2</span><span class="v" style="color:var(--accent)">03:50</span><span class="s" style="color:var(--accent)">(04:20)</span></div>
+      <div class="row"><span class="lbl q">Q3</span><span class="v" style="color:var(--accent)">06:20</span><span class="s" style="color:var(--sb-val)">(01:50)</span></div>
+      <div class="row target"><span class="tk">target:</span><span class="v" style="color:var(--dim)">05:00</span><span class="s">(04:30)</span></div>
+      <div class="row"><span class="lbl q dim">Q4</span><span class="v" style="color:var(--dim)">04:00</span><span class="s">(04:20)</span></div>
+      <div class="row"><span class="lbl q dim">Q5</span><span class="v" style="color:var(--dim)">03:40</span><span class="s">(04:00)</span></div>
+      <div class="row"><span class="lbl dim">Assn</span><span class="v" style="color:var(--dim)">02:00</span><span class="s"></span></div>
+    </div>`;
+
+  const headerStacked = `
+    <div class="tt">
+      <div class="tt-label">TOTAL</div>
+      <div class="tt-elapsed">18:42</div>
+      <div class="tt-of">of <b>45:00</b> target</div>
+      <div class="tt-bar"><i></i></div>
+    </div>`;
+
+  const headerInline = `
+    <div class="tt">
+      <div class="tt-label">TOTAL</div>
+      <div class="tt-inline"><span class="big">18:42</span><span class="slash">/</span><span class="goal">45:00</span></div>
+      <div class="tt-bar"><i></i></div>
+    </div>`;
+
+  document.getElementById('rack').innerHTML = `
+    <div class="col-wrap">
+      <div class="col-cap">Header <b>A</b> — stacked</div>
+      <div class="sb">${headerStacked}${rows}</div>
+    </div>
+    <div class="col-wrap">
+      <div class="col-cap">Header <b>B</b> — inline</div>
+      <div class="sb">${headerInline}${rows}</div>
+    </div>`;
+</script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Leader values — fonts & Loyal Servant casing</title>
+<style>
+  @font-face { font-family: 'EnchantedLand';     src: url('fonts/Enchanted Land.otf'); }
+  @font-face { font-family: 'Franken';           src: url('fonts/CATFranken-Deutsch.ttf'); }
+  @font-face { font-family: 'JetBrains Mono';     src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2'); }
+  @font-face { font-family: 'Cinzel Decorative';  src: url('fonts/CinzelDecorative-Regular.woff2') format('woff2'); }
+  @font-face { font-family: 'OptimusPrinceps';    src: url('fonts/OptimusPrincepsSemiBold.ttf') format('truetype'); }
+
+  :root { --cream: #dcc878; --accent: #b87c28; --accent-dim: #5e4818; --stone: #181818; }
+  html, body { margin: 0; background: #090c11; color: var(--cream); }
+  body {
+    min-height: 100vh; padding: 30px 26px 120px;
+    font-family: 'JetBrains Mono', monospace;
+    display: flex; flex-direction: column; align-items: center;
+  }
+
+  .section-hd {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; letter-spacing: 3px;
+    text-transform: uppercase; color: #8a7f66; margin: 20px 0 18px; text-align: center;
+  }
+
+  /* ── Section 1: values × 4 fonts ── */
+  table { border-collapse: collapse; }
+  th {
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 2px;
+    text-transform: uppercase; color: #7a7060; font-weight: normal;
+    padding: 0 26px 16px; border-bottom: 1px solid #17141c;
+  }
+  td {
+    padding: 10px 26px; border-bottom: 1px solid #100e15;
+    text-align: center; color: var(--cream); font-size: 46px; line-height: 1.1;
+  }
+  tr:hover td { background: rgba(184,124,40,0.05); }
+
+  .f-cinzel  { font-family: 'Cinzel Decorative', Georgia, serif; }
+  .f-optimus { font-family: 'OptimusPrinceps', Georgia, serif; text-transform: uppercase; letter-spacing: .05em; }
+  .f-franken { font-family: 'Franken', Georgia, serif; }
+  .f-enchant { font-family: 'EnchantedLand', Georgia, serif; }
+
+  .divider { width: min(920px, 92vw); height: 1px; background: #1a1620; margin: 60px 0 10px; }
+
+  /* ── Section 2: "Loyal servant" casings in Cinzel, left-aligned ── */
+  .casing { text-align: left; }
+  .casing .row {
+    font-family: 'Cinzel Decorative', Georgia, serif;
+    font-size: 40px; color: var(--cream); line-height: 1.5;
+    border-bottom: 1px dashed #17141c; padding: 6px 0;
+  }
+  .casing .tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px;
+    color: #6a6050; display: block; margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+  <div class="section-hd">Numbers 1–9 &amp; player names · Cinzel / Optimus / Franken / Enchanted Land</div>
+
+  <table id="grid">
+    <thead>
+      <tr>
+        <th>Cinzel Decorative</th>
+        <th>OptimusPrinceps</th>
+        <th>Franken (CAT)</th>
+        <th>Enchanted Land</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="section-hd">"Loyal servant" casing — Cinzel Decorative, left-aligned</div>
+  <div class="casing">
+    <div class="row">Loyal servant<span class="tag">Loyal servant</span></div>
+    <div class="row">Loyal Servant<span class="tag">Loyal Servant</span></div>
+    <div class="row">loyal servant<span class="tag">loyal servant</span></div>
+  </div>
+
+<script>
+  const values = ['1','2','3','4','5','6','7','8','9',
+                  'Linus','Ale','Jacky','Isak','Jonas','Noora','Hampus'];
+  const tbody = document.querySelector('#grid tbody');
+  values.forEach(v => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="f-cinzel">${v}</td>
+      <td class="f-optimus">${v}</td>
+      <td class="f-franken">${v}</td>
+      <td class="f-enchant">${v}</td>`;
+    tbody.append(tr);
+  });
+</script>
+</body>
+</html>

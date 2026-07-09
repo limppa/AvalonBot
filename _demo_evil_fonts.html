@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>"Evil triumphs" — font options</title>
+<style>
+  @font-face { font-family: 'Franken';           src: url('fonts/CATFranken-Deutsch.ttf'); }
+  @font-face { font-family: 'EnchantedLand';      src: url('fonts/Enchanted Land.otf'); }
+  @font-face { font-family: 'Cormorant Garamond'; src: url('fonts/CormorantGaramond-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; }
+  @font-face { font-family: 'Cinzel Decorative';  src: url('fonts/CinzelDecorative-Regular.woff2') format('woff2'); }
+  @font-face { font-family: 'OptimusPrinceps';    src: url('fonts/OptimusPrincepsSemiBold.ttf') format('truetype'); }
+
+  :root { --evil-red: #a82040; }
+  html, body { margin: 0; background: #08070a; }
+  body {
+    min-height: 100vh; padding: 40px 20px 80px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+
+  .row {
+    width: min(900px, 92vw);
+    padding: 26px 20px;
+    border-bottom: 1px solid #1a1620;
+    text-align: center;
+  }
+  .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: #6a6470; margin-bottom: 14px;
+  }
+  .phrase {
+    color: var(--evil-red);
+    line-height: 1.1;
+    text-shadow: 0 0 26px rgba(168,32,64,.4), 0 0 6px rgba(0,0,0,.9);
+  }
+
+  /* per-font sizing so each reads at a comparable optical size */
+  .f-optimus  { font-family: 'OptimusPrinceps', serif;    font-size: 5rem;   letter-spacing: .14em; text-transform: uppercase; }
+  .f-cinzel   { font-family: 'Cinzel Decorative', serif;  font-size: 4.2rem; letter-spacing: .1em;  text-transform: uppercase; }
+  .f-franken  { font-family: 'Franken', serif;            font-size: 5.4rem; letter-spacing: .02em; }
+  .f-enchant  { font-family: 'EnchantedLand', serif;      font-size: 6rem;   letter-spacing: .02em; }
+  .f-cormorant{ font-family: 'Cormorant Garamond', serif; font-size: 5.4rem; font-style: italic; }
+
+  .controls {
+    position: fixed; top: 12px; right: 14px;
+    font-family: system-ui, sans-serif; font-size: 13px; color: #888;
+    display: flex; gap: 10px; align-items: center;
+  }
+  .controls input { vertical-align: middle; }
+</style>
+</head>
+<body>
+  <div class="row"><div class="label">OptimusPrinceps — the current death-card font</div>
+    <div class="phrase f-optimus">Evil triumphs</div></div>
+
+  <div class="row"><div class="label">Cinzel Decorative</div>
+    <div class="phrase f-cinzel">Evil triumphs</div></div>
+
+  <div class="row"><div class="label">Franken (CAT) — mixed case only</div>
+    <div class="phrase f-franken">Evil Triumphs</div></div>
+
+  <div class="row"><div class="label">Enchanted Land — mixed case only</div>
+    <div class="phrase f-enchant">Evil Triumphs</div></div>
+
+  <div class="row"><div class="label">Cormorant Garamond — light italic</div>
+    <div class="phrase f-cormorant">Evil Triumphs</div></div>
+
+  <div class="controls">
+    <label><input type="checkbox" id="glow" checked> glow</label>
+    <label>red <input type="color" id="col" value="#a82040"></label>
+  </div>
+
+<script>
+  const root = document.documentElement;
+  document.getElementById('glow').addEventListener('change', e => {
+    document.querySelectorAll('.phrase').forEach(p =>
+      p.style.textShadow = e.target.checked ? '' : 'none');
+  });
+  document.getElementById('col').addEventListener('input', e =>
+    root.style.setProperty('--evil-red', e.target.value));
+</script>
+</body>
+</html>

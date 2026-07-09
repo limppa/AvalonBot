@@ -93,8 +93,13 @@ const ASSN_QUEST_INDEX = { saga: 2, slow: 2, normal: 2, fast: 1, speedrun: 0 }
 // Used by calcAssnFraction() in renderer.js, wired into calcDiscussionBudget() and newGame().
 // ASSN_POOL_REF: median (good-players + Oberon-in-play) pool across default 5-10p configs.
 // ASSN_EVIL_PCT_REF: evil-player share at 8 players, used as the reference share.
+// ASSN_BASE_RATE: overall level of the assn split (assnFraction = ASSN_BASE_RATE × poolFactor
+//   × evilFactor). This is the single knob for how much time assassination gets across all
+//   configs; poolFactor/evilFactor only shape it by player count / Oberon. At the 8p reference
+//   (poolFactor=evilFactor=1) assn takes rate/(1+rate) of the discussion pool.
 const ASSN_POOL_REF     = 5
 const ASSN_EVIL_PCT_REF = 3 / 8
+const ASSN_BASE_RATE    = 0.12
 
 // Oberon is not known by Evil, and is therefore a part of the "potential Merlin"
 // pool. He counts as 0.5 because it is easier for Evil to discount him as Merlin
@@ -148,6 +153,7 @@ module.exports = {
   ASSN_QUEST_INDEX,
   ASSN_POOL_REF,
   ASSN_EVIL_PCT_REF,
+  ASSN_BASE_RATE,
   OBERON_POOL_WEIGHT,
   QUEST_CARD_TIME,
   SPEED_ANCHOR_7P,

@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "date": "2026-07-08T23:29:46.821Z",
+  "settings": {
+    "players": 7,
+    "gameSpeed": "normal",
+    "targetTime": 45,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": true,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": true,
+      "excalibur": false
+    }
+  },
+  "night": {
+    "seconds": 3
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "failedVotes": 2,
+      "result": "success",
+      "votingSeconds": 5,
+      "cardSeconds": 5,
+      "endTimestamp": 13
+    },
+    {
+      "questNumber": 2,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 4,
+      "cardSeconds": 4,
+      "endTimestamp": 21
+    },
+    {
+      "questNumber": 3,
+      "failedVotes": 2,
+      "result": "fail",
+      "votingSeconds": 8,
+      "cardSeconds": 7,
+      "endTimestamp": 36
+    },
+    {
+      "questNumber": 4,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 6,
+      "cardSeconds": 4,
+      "endTimestamp": 46
+    },
+    {
+      "questNumber": 5,
+      "failedVotes": 0,
+      "result": "success",
+      "votingSeconds": 9,
+      "cardSeconds": 4,
+      "endTimestamp": 59
+    }
+  ],
+  "assassination": {
+    "seconds": 52
+  },
+  "outcome": {
+    "winner": "evil",
+    "reason": "merlin-killed",
+    "totalSeconds": 111
+  },
+  "optional": {
+    "balance": null,
+    "assassinConfidence": null,
+    "assassinationTarget": null,
+    "seating": [
+      "Linus",
+      "Ale",
+      "Jacky",
+      "Isak",
+      "Jonas",
+      "Noora",
+      "Hampus"
+    ],
+    "firstLeader": "Hampus",
+    "lotlHolder": "Noora",
+    "notes": ""
+  }
+}

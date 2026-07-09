@@ -14,6 +14,7 @@ const {
   ASSN_QUEST_INDEX,
   ASSN_POOL_REF,
   ASSN_EVIL_PCT_REF,
+  ASSN_BASE_RATE,
   OBERON_POOL_WEIGHT,
   QUEST_CARD_TIME,
   SPEED_ANCHOR_7P,
@@ -36,7 +37,6 @@ const THEME = (() => {
     coin:       v('--coin'),
     accent:     v('--accent'),
     accentDim:  v('--accent-dim'),
-    accentBrt:  v('--accent-brt'),
     cream:      v('--cream'),
     dim:        v('--dim'),
     goodFill:   v('--good-fill'),
@@ -125,6 +125,197 @@ const settings = {
   menuRow:     0,
   menuPage:    'main',   // 'main' | 'characters'
   medievalOnly: false,   // when true, skip non-medieval songs (see music/metadata.json)
+}
+
+// Optional pre-game table setup. Seating persists across games in a session
+// (same table), while firstLeader is re-rolled/cleared each game. Fed into
+// gameLogs.init() so it lands in the log; never required to start a game.
+const preGame = {
+  seating:     [],    // names in clockwise seat order, indexed by seat (0-based)
+  firstLeader: null,  // name (if seats named) or seat number 1..N (if not)
+}
+
+// Set true once the log screen's character/settings mismatch warning has shown,
+// so a second Submit press lets an intentional mismatch through. Reset on open.
+let _logCharWarned = false
+
+// Draft of the log form, captured on ESC so re-opening the log screen restores
+// the in-progress inputs. Cleared once the game is submitted. null = no draft.
+let logDraft = null
+
+// The character-column auto-open chain runs only the first time the log screen
+// appears for a given game. Set true after that first run; reset per new game.
+let logChainDone = false
+
+// Where the 'setup' (add-players) screen returns to on Done/ESC: the main menu,
+// or the post-night 'leader' screen when opened from its [P] Add players button.
+let setupReturnPhase = 'menu'
+
+// True while the leader screen is waiting for a second confirm to continue with
+// no leader chosen (first ENTER arms it, second ENTER proceeds).
+let _leaderConfirm = false
+
+// Minimal HTML-escape for injecting saved values into markup.
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// Pick who starts as first leader: choose a random seat 1..players and
+// return that seat's name if it has one, else the seat number itself.
+function randomizeFirstLeader(names, players) {
+  const seat = Math.floor(Math.random() * players) + 1
+  const nm = (names[seat - 1] || '').trim()
+  return nm || seat
+}
+
+// Read the seat-name inputs (setup or log screen) back into preGame.seating,
+// preserving seat positions (empty seats become '').
+function syncSeatsToPreGame() {
+  const arr = []
+  document.querySelectorAll('[data-seat-idx]').forEach(el => {
+    arr[parseInt(el.dataset.seatIdx)] = el.value.trim()
+  })
+  preGame.seating = arr
+}
+
+// True if any two filled seat-name inputs match (case-insensitive) — used to
+// block submitting a roster with the same person entered twice.
+function hasDuplicateNames() {
+  const seen = new Set()
+  let dup = false
+  document.querySelectorAll('[data-seat-idx]').forEach(el => {
+    const v = el.value.trim().toLowerCase()
+    if (!v) return
+    if (seen.has(v)) dup = true
+    seen.add(v)
+  })
+  return dup
+}
+
+// ── Pre-night leader screen ──────────────────────────────────────────────────
+
+let _leaderShuffleTimer = null   // active while the randomize shuffle is running
+const _shuffleSfx = new Audio('sfx/shuffle.wav')   // "krrrrr, tschh!" on randomize
+_shuffleSfx.volume = 0.7
+
+function leaderHasChoice() {
+  return preGame.firstLeader != null && preGame.firstLeader !== ''
+}
+
+// Snap a running shuffle straight to its final value (e.g. when the user
+// continues or navigates away mid-animation).
+function finishLeaderShuffle() {
+  if (!_leaderShuffleTimer) return
+  clearTimeout(_leaderShuffleTimer)
+  _leaderShuffleTimer = null
+  const el = document.getElementById('leader-input')
+  if (el) {
+    el.readOnly = false
+    el.classList.remove('shuffling')
+    el.classList.add('locked-in')
+    el.value = (typeof preGame.firstLeader === 'number') ? String(preGame.firstLeader) : (preGame.firstLeader || '')
+  }
+}
+
+// Read the leader screen's manual input into preGame.firstLeader (number if the
+// text is purely digits — a seat — otherwise the typed name).
+function syncLeaderInput() {
+  const el = document.getElementById('leader-input')
+  if (!el) return
+  const v = el.value.trim()
+  preGame.firstLeader = v === '' ? null : (/^\d+$/.test(v) ? Number(v) : v)
+}
+
+// Reset the "no leader chosen" confirm state back to the normal Continue button.
+function leaderResetConfirm() {
+  _leaderConfirm = false
+  const btn = document.getElementById('leader-continue')
+  if (btn) btn.textContent = '[ENTER]  Continue'
+  document.getElementById('leader-warning')?.classList.remove('show')
+}
+
+function leaderRandomize() {
+  if (_leaderShuffleTimer) return   // a shuffle is already running
+  const el = document.getElementById('leader-input')
+  if (!el) return
+
+  // Candidate pool = each seat's name, or its number if unnamed.
+  const pool = []
+  for (let i = 0; i < gs.players; i++) {
+    const nm = (preGame.seating[i] || '').trim()
+    pool.push(nm || String(i + 1))
+  }
+  const res      = randomizeFirstLeader(preGame.seating.slice(0, gs.players), gs.players)
+  const finalStr = (typeof res === 'number') ? String(res) : res
+  preGame.firstLeader = res       // truth is set immediately; the shuffle is cosmetic
+  leaderResetConfirm()
+
+  // "krrrrr, tschh!" — shuffle runs for the clip length so the snap lands on the "tschh".
+  try { _shuffleSfx.currentTime = 0; _shuffleSfx.play().catch(() => {}) } catch (_) {}
+
+  // Slot-machine shuffle: cycle random candidates at a constant flip speed.
+  el.readOnly = true
+  el.classList.remove('locked-in')
+  el.classList.add('shuffling')
+  const start    = performance.now()
+  const DURATION = 350            // snaps on the ~360ms tick, matching sfx/shuffle.wav (0.363s)
+  let last = ''
+  const tick = () => {
+    if (!document.body.contains(el)) { _leaderShuffleTimer = null; return }
+    const t = performance.now() - start
+    if (t >= DURATION) {
+      _leaderShuffleTimer = null
+      el.readOnly = false
+      el.classList.remove('shuffling')
+      el.classList.add('locked-in')
+      el.value = finalStr
+      el.classList.remove('leader-settle'); void el.offsetWidth; el.classList.add('leader-settle')
+      return
+    }
+    let v = pool[0] || finalStr
+    if (pool.length > 1) { do { v = pool[(Math.random() * pool.length) | 0] } while (v === last) }
+    last = v
+    el.value = v
+    _leaderShuffleTimer = setTimeout(tick, 40)   // ~25 flips/sec (unchanged rate)
+  }
+  tick()
+}
+
+function leaderContinue() {
+  finishLeaderShuffle()
+  syncLeaderInput()
+  if (!leaderHasChoice() && !_leaderConfirm) {
+    _leaderConfirm = true
+    const btn = document.getElementById('leader-continue')
+    if (btn) btn.textContent = '[ENTER]  Yes, continue'
+    document.getElementById('leader-warning')?.classList.add('show')
+    return
+  }
+  startNightFromLeader()
+}
+
+function leaderAddPlayers() {
+  finishLeaderShuffle()
+  syncLeaderInput()
+  setupReturnPhase = 'leader'
+  gs.phase = 'setup'
+  renderOverlay()
+}
+
+// Leave the leader screen and begin the night phase (leader is picked BEFORE
+// night so the timer can run straight through night → game with no pause).
+function startNightFromLeader() {
+  _leaderConfirm = false
+  // Record the seating + chosen leader into the log now (re-confirmed at submit).
+  if (preGame.seating.some(Boolean)) gameLogs.setSeating(preGame.seating.slice(0, gs.players))
+  if (leaderHasChoice()) gameLogs.setFirstLeader(preGame.firstLeader)
+  gs.phase = 'night'
+  music.resetSession()
+  music.fadeToFolder('Night phase')
+  music.preload('Round 1', 'a')         // pre-buffer Round 1 for when night ends
+  logEvent('Night phase')
+  render()
 }
 
 function applyDefaultCharacters(players) {
@@ -218,7 +409,7 @@ function buildTeamRoles(players, characters) {
 
 // Fraction of the Q1-Q5 discussion budget that Assassination takes.
 // Used by calcDiscussionBudget() and newGame() to split available time between quests and Assassination.
-// assnFraction = 0.10 × poolFactor × evilFactor
+// assnFraction = ASSN_BASE_RATE × poolFactor × evilFactor
 function calcAssnFraction() {
   const evilCount   = settings.players <= 6 ? 2 : settings.players <= 9 ? 3 : 4
   const goodCount   = settings.players - evilCount
@@ -226,11 +417,11 @@ function calcAssnFraction() {
   const poolFactor  = Math.sqrt(pool / ASSN_POOL_REF)
   const evilPct     = evilCount / settings.players
   const evilFactor  = ASSN_EVIL_PCT_REF / evilPct
-  return 0.10 * poolFactor * evilFactor
+  return ASSN_BASE_RATE * poolFactor * evilFactor
 }
 
 // Returns the discussion-only budget in seconds for the current settings.
-// Assassination gets the same duration as quest Q3 (saga/slow/normal), Q2 (fast), or Q1 (speedrun).
+// Assassination's slice is split off via calcAssnFraction(); the rest is the Q1-Q5 pool.
 function calcDiscussionBudget() {
   const speed     = effectiveSpeed(settings.targetTime)
   const cardTimes = QUEST_CARD_TIME[speed]
@@ -306,6 +497,9 @@ function applyMenuChange(row, delta) {
       settings.abilities.excalibur = !settings.abilities.excalibur
       renderOverlay()
       renderCharPanel()
+    } else if (row === 6) {
+      // ADD PLAYERS — open on right arrow (also opens on Enter, see keydown)
+      if (delta > 0) { setupReturnPhase = 'menu'; gs.phase = 'setup'; renderOverlay() }
     }
   } else if (settings.menuPage === 'characters') {
     // row 0=merlin, 1=percival, 2=assassin, 3=morgana, 4=mordred, 5=oberon, 6=back
@@ -321,6 +515,57 @@ function applyMenuChange(row, delta) {
       renderOverlay()
       renderCharPanel()
       renderSplitPanel()
+    }
+  }
+}
+
+function startGameFromMenu() {
+  // Pick the first leader BEFORE night, then night runs with the timer going.
+  gameLogs.init(settings, preGame)
+  gs.phase = 'leader'
+  render()
+}
+
+// Click handler for a menu row (mirrors keyboard nav). Steppers advance forward
+// with wrap so a click is never a no-op; toggles flip; action rows activate.
+function handleMenuClick(key) {
+  if (settings.menuPage === 'main') {
+    const order = ['players', 'speed', 'time', 'chars', 'lotl', 'excalibur', 'setup', 'start']
+    const idx = order.indexOf(key)
+    if (idx < 0) return
+    settings.menuRow = idx
+    if (key === 'players') {
+      setMenuPlayers(settings.players >= 10 ? 5 : settings.players + 1)
+    } else if (key === 'speed') {
+      const cur  = settings.gameSpeed || effectiveSpeed(settings.targetTime)
+      const next = SPEED_ORDER[(SPEED_ORDER.indexOf(cur) + 1) % SPEED_ORDER.length]
+      settings.gameSpeed  = next
+      settings.targetTime = timeFromSpeed(settings.players, next)
+      updateQuestAllotted(); renderOverlay(); renderSplitPanel()
+    } else if (key === 'time') {
+      settings.targetTime = settings.targetTime >= 150 ? 5 : Math.min(150, settings.targetTime + 5)
+      settings.gameSpeed  = speedFromTime(settings.players, settings.targetTime)
+      updateQuestAllotted(); renderOverlay(); renderSplitPanel()
+    } else if (key === 'lotl' || key === 'excalibur') {
+      applyMenuChange(idx, 1)   // toggle (delta ignored)
+    } else if (key === 'chars') {
+      settings.menuPage = 'characters'; settings.menuRow = 0; renderOverlay()
+    } else if (key === 'setup') {
+      setupReturnPhase = 'menu'; gs.phase = 'setup'; renderOverlay()
+    } else if (key === 'start') {
+      startGameFromMenu()
+    }
+  } else if (settings.menuPage === 'characters') {
+    const order = ['merlin', 'percival', 'assassin', 'morgana', 'mordred', 'oberon', 'back']
+    const idx = order.indexOf(key)
+    if (idx < 0) return
+    settings.menuRow = idx
+    if (key === 'back') {
+      settings.menuPage = 'main'; settings.menuRow = 3; renderOverlay()
+    } else {
+      toggleCharacter(key)
+      updateQuestAllotted()
+      renderOverlay(); renderCharPanel(); renderSplitPanel()
     }
   }
 }
@@ -363,6 +608,7 @@ function newGame(players = settings.players) {
     failCount:     0,
     merlin:        'hiding',
     quote:         QUOTES[Math.floor(Math.random() * QUOTES.length)],
+
     totalSecs:        0,
     nightSecs:        0,
     assnStart:        0,
@@ -378,6 +624,10 @@ function newGame(players = settings.players) {
 
 let gs = newGame()
 let sidebarAnimatePending  = false
+// One-shot "pop" request for the split panel, consumed by the next renderSplitPanel().
+//   { type: 'freeze' }               → pop the live active-quest row (voting timer froze)
+//   { type: 'resolve', index: i }    → pop the just-resolved Q row (label flipped red/blue)
+let sidebarPop             = null
 let _prevPanelOpen         = false
 let _charPanelFingerprint  = ''
 let _lotlPromptTimer       = null
@@ -739,8 +989,9 @@ function buildStaticDOM() {
 
 // Custom autocomplete for log-screen text inputs — replaces native datalist.
 // getOptions() is called live each time the dropdown opens so it always reflects
-// the latest typed values in other inputs.
-function attachLogAutocomplete(input, getOptions) {
+// the latest typed values in other inputs. onSelect(opt) (optional) fires when an
+// option is committed via click or Enter. Returns a handle for programmatic control.
+function attachLogAutocomplete(input, getOptions, onSelect, onEnterAdvance, dropdownClass) {
   let dropdown       = null
   let focusedIdx     = -1
   let _skipNextFocus = false
@@ -754,12 +1005,19 @@ function attachLogAutocomplete(input, getOptions) {
     btn?.classList.remove('open')
   }
 
+  function commit(opt) {
+    input.value = opt
+    removeDropdown()
+    input.dispatchEvent(new Event('input'))
+    if (onSelect) onSelect(opt)
+  }
+
   function showDropdown(opts) {
     removeDropdown()
     if (!opts.length) return
     const rect = input.getBoundingClientRect()
     dropdown = document.createElement('div')
-    dropdown.className = 'log-autocomplete'
+    dropdown.className = 'log-autocomplete' + (dropdownClass ? ' ' + dropdownClass : '')
     dropdown.style.top   = rect.bottom + 'px'
     dropdown.style.left  = rect.left   + 'px'
     dropdown.style.width = rect.width  + 'px'
@@ -767,12 +1025,7 @@ function attachLogAutocomplete(input, getOptions) {
       const item = document.createElement('div')
       item.className = 'log-ac-item'
       item.textContent = opt
-      item.addEventListener('mousedown', e => {
-        e.preventDefault()
-        input.value = opt
-        removeDropdown()
-        input.dispatchEvent(new Event('input'))
-      })
+      item.addEventListener('mousedown', e => { e.preventDefault(); commit(opt) })
       dropdown.append(item)
     })
     document.body.append(dropdown)
@@ -789,20 +1042,21 @@ function attachLogAutocomplete(input, getOptions) {
     showDropdown(opts)
   }
 
+  // Open the full option list programmatically (also used by the ▾ button).
+  function openAll() {
+    const opts = getOptions()
+    if (!opts.length) return
+    _skipNextFocus = true               // suppress the focus-triggered refresh
+    showDropdown(opts)
+    input.focus()
+  }
+
   // ▾ button: toggle all-options dropdown
   if (btn) {
     btn.addEventListener('mousedown', e => {
       e.preventDefault()               // keep input focused
-      if (dropdown) {
-        removeDropdown()
-      } else {
-        const opts = getOptions()
-        if (opts.length) {
-          _skipNextFocus = true         // suppress the focus-triggered refresh
-          showDropdown(opts)
-          input.focus()
-        }
-      }
+      if (dropdown) removeDropdown()
+      else openAll()
     })
   }
 
@@ -811,9 +1065,31 @@ function attachLogAutocomplete(input, getOptions) {
     if (_skipNextFocus) { _skipNextFocus = false; return }
     refresh()
   })
+  // Clicking anywhere in the field opens the full option list (typing still filters).
+  input.addEventListener('click', () => {
+    if (dropdown) return                 // already open — let the click place the cursor
+    const opts = getOptions()
+    if (opts.length) showDropdown(opts)
+  })
   input.addEventListener('blur', () => setTimeout(removeDropdown, 120))
 
   input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      if (dropdown) {
+        // Menu open: choose the highlighted option, else just close it. Consume.
+        e.preventDefault(); e.stopPropagation()
+        if (focusedIdx >= 0) {
+          const items = [...dropdown.querySelectorAll('.log-ac-item')]
+          commit(items[focusedIdx].textContent)
+        } else {
+          removeDropdown()
+        }
+        return
+      }
+      // Menu closed: advance to the next field / submit (like Tab), if wired.
+      if (onEnterAdvance) { e.preventDefault(); e.stopPropagation(); onEnterAdvance() }
+      return
+    }
     if (!dropdown) return
     const items = [...dropdown.querySelectorAll('.log-ac-item')]
     if (e.key === 'ArrowDown') {
@@ -822,11 +1098,6 @@ function attachLogAutocomplete(input, getOptions) {
     } else if (e.key === 'ArrowUp') {
       e.preventDefault(); e.stopPropagation()
       focusedIdx = Math.max(focusedIdx - 1, -1)
-    } else if (e.key === 'Enter' && focusedIdx >= 0) {
-      e.preventDefault(); e.stopPropagation()
-      input.value = items[focusedIdx].textContent
-      removeDropdown()
-      input.dispatchEvent(new Event('input'))
     } else if (e.key === 'Escape') {
       e.stopPropagation()
       removeDropdown()
@@ -834,48 +1105,151 @@ function attachLogAutocomplete(input, getOptions) {
     items.forEach((el, i) => el.classList.toggle('focused', i === focusedIdx))
     if (focusedIdx >= 0) items[focusedIdx].scrollIntoView({ block: 'nearest' })
   })
+
+  return { openAll, close: removeDropdown }
 }
 
-function buildLogHTML() {
-  const roles = buildTeamRoles(gs.players, settings.characters)
+// Move focus to the next text field after `input` (DOM order within the overlay).
+// Returns false if `input` was the last one — the caller then submits.
+function focusNextLogField(input) {
+  const fields = [...document.querySelectorAll(
+    '#overlay-body .log-player-input, #overlay-body .log-textarea')]
+  const i = fields.indexOf(input)
+  if (i >= 0 && i + 1 < fields.length) { fields[i + 1].focus(); return true }
+  return false
+}
 
-  function rosterSection(roleList, startIdx) {
-    const rows = roleList.map((role, i) => {
-      const color = ROLE_COLOR[role] || THEME.cream
-      return `
+// Shared markup for a column of seat-name inputs (used by setup + log screens).
+function seatingRowsHTML(count) {
+  let rows = ''
+  for (let i = 0; i < count; i++) {
+    const val = (preGame.seating[i] || '').replace(/"/g, '&quot;')
+    rows += `
       <div class="log-roster-row">
-        <span class="log-role-name" style="color:${color}">${role}</span>
+        <span class="log-seat-num">${i + 1}.</span>
         <div class="log-input-wrap">
-          <input type="text" class="log-player-input"
-                 data-roster-idx="${startIdx + i}" placeholder="—" autocomplete="off" spellcheck="false">
+          <input type="text" class="log-player-input" data-seat-idx="${i}"
+                 value="${val}" placeholder="—" autocomplete="off" spellcheck="false">
           <button class="log-ac-btn" tabindex="-1">▾</button>
         </div>
       </div>`
-    }).join('')
-    return `<div class="log-roster">${rows}</div>`
   }
+  return rows
+}
 
-  const characterSection = `<div class="log-section-hd">Characters</div>
-    ${rosterSection(roles.good, 0)}
-    ${rosterSection(roles.evil, roles.good.length)}`
+function buildSetupHTML() {
+  return `
+    <div class="log-header grad-title">Add names</div>
+    <div class="log-rule"></div>
+    <div id="setup-dup-warning" class="name-warning">duplicate name</div>
+    <div class="log-roster">${seatingRowsHTML(gs.players)}</div>
+    <button id="setup-done" class="log-submit-btn" style="margin-top:22px">Done</button>
+    <div class="log-bottom-pad"></div>`
+}
 
+function buildLeaderHTML() {
+  const fl    = preGame.firstLeader
+  const flStr = fl == null ? '' : (typeof fl === 'number' ? String(fl) : fl)
+  return `
+    <div class="ov-title grad-title leader-title">First leader</div>
+    <div class="ov-rule"></div>
+    <div class="leader-pick">
+      <div class="log-input-wrap leader-input-wrap">
+        <input type="text" id="leader-input" class="log-player-input leader-value" value="${_esc(flStr)}"
+               placeholder="—" autocomplete="off" spellcheck="false">
+        <button class="log-ac-btn leader-ac-btn" tabindex="-1">▾</button>
+      </div>
+      <div id="leader-warning" class="leader-warning">no leader chosen</div>
+    </div>
+    <div class="leader-btns">
+      <button id="leader-randomize" class="log-submit-btn">[SPACE]  Randomize leader</button>
+      <button id="leader-addplayers" class="log-submit-btn">[P]  Add names</button>
+      <button id="leader-continue" class="log-submit-btn">[ENTER]  Continue</button>
+    </div>`
+}
+
+// Distinct character options for the log dropdown, from the game's settings —
+// each specific role once, generics (Loyal Servant / Minion) shown a single time.
+function logCharOptions() {
+  const roles = buildTeamRoles(gs.players, settings.characters)
+  const seen = new Set(); const opts = []
+  ;[...roles.good, ...roles.evil].forEach(r => { if (!seen.has(r)) { seen.add(r); opts.push(r) } })
+  return opts
+}
+
+// Which team a chosen character belongs to, per settings. null = freely-typed
+// character not in this game's line-up (an intentional mismatch).
+function logTeamForRole(role) {
+  if (!role) return null
+  const roles = buildTeamRoles(gs.players, settings.characters)
+  if (roles.good.some(r => r.toLowerCase() === role.toLowerCase())) return 'good'
+  if (roles.evil.some(r => r.toLowerCase() === role.toLowerCase())) return 'evil'
+  return null
+}
+
+// True when the characters entered in the roster don't match the settings line-up
+// (as a multiset). An all-blank character column is treated as "not logged" — no warning.
+function logCharMismatch() {
+  const roles    = buildTeamRoles(gs.players, settings.characters)
+  const expected = [...roles.good, ...roles.evil].map(s => s.toLowerCase()).sort()
+  const chosen   = []
+  document.querySelectorAll('[data-char-idx]').forEach(el => {
+    const v = el.value.trim(); if (v) chosen.push(v.toLowerCase())
+  })
+  if (!chosen.length) return false
+  chosen.sort()
+  return chosen.length !== expected.length || chosen.some((c, i) => c !== expected[i])
+}
+
+function buildLogHTML() {
+  // One row per player (seat order): number · name · character. Values prefill
+  // from a saved draft (ESC-restore) if present, else from pre-game seating.
+  let rosterRows = ''
+  for (let i = 0; i < gs.players; i++) {
+    const nm = _esc(logDraft ? logDraft.seats[i] : preGame.seating[i])
+    const ch = _esc(logDraft ? logDraft.chars[i] : '')
+    rosterRows += `
+      <div class="log-roster-row">
+        <span class="log-seat-num">${i + 1}.</span>
+        <div class="log-input-wrap">
+          <input type="text" class="log-player-input" data-seat-idx="${i}"
+                 value="${nm}" placeholder="name" autocomplete="off" spellcheck="false">
+          <button class="log-ac-btn" tabindex="-1">▾</button>
+        </div>
+        <div class="log-input-wrap">
+          <input type="text" class="log-player-input" data-char-idx="${i}"
+                 value="${ch}" placeholder="character" autocomplete="off" spellcheck="false">
+          <button class="log-ac-btn" tabindex="-1">▾</button>
+        </div>
+      </div>`
+  }
+  const characterSection = `
+    <div class="log-section-hd">Players &amp; characters</div>
+    <div id="log-dup-warning" class="name-warning">duplicate name</div>
+    <div id="log-char-warning" class="log-warning">characters do not match settings</div>
+    <div class="log-roster log-roster-chars">${rosterRows}</div>`
+
+  const balVal     = (logDraft && logDraft.balance != null) ? logDraft.balance : 0
+  const balTouched = (logDraft && logDraft.balance != null) ? ' touched' : ''
   const balanceHTML = `
     <div class="log-field">
       <div class="log-field-label">Game balance</div>
       <div class="log-scale-row">
         <span class="log-scale-cap">Evil</span>
-        <input type="range" id="log-balance" class="log-range" min="-3" max="3" step="1" value="0">
+        <input type="range" id="log-balance" class="log-range${balTouched}" min="-3" max="3" step="1" value="${balVal}">
         <span class="log-scale-cap">Good</span>
       </div>
       <div class="log-scale-desc" id="log-balance-desc">—</div>
     </div>`
 
+  const confValRaw = (logDraft && logDraft.conf != null) ? logDraft.conf : 3
+  const confTouched = (logDraft && logDraft.conf != null) ? ' touched' : ''
   const confHTML = gs.assnStart > 0 ? `
     <div class="log-field">
       <div class="log-field-label">Assassin confidence</div>
       <div class="log-scale-row">
         <span class="log-scale-cap">Guess</span>
-        <input type="range" id="log-conf" class="log-range" min="1" max="5" step="1" value="3">
+        <input type="range" id="log-conf" class="log-range${confTouched}" min="1" max="5" step="1" value="${confValRaw}">
         <span class="log-scale-cap">Certain</span>
       </div>
       <div class="log-scale-desc" id="log-conf-desc">—</div>
@@ -885,39 +1259,29 @@ function buildLogHTML() {
     <div class="log-field">
       <div class="log-field-label">Assassination target</div>
       <div class="log-input-wrap">
-        <input type="text" id="log-assn-target" class="log-player-input"
+        <input type="text" id="log-assn-target" class="log-player-input" value="${_esc(logDraft ? logDraft.target : '')}"
                placeholder="—" autocomplete="off" spellcheck="false">
         <button class="log-ac-btn" tabindex="-1">▾</button>
       </div>
     </div>` : ''
 
-  const newPlayersHTML = `
+  const flPre = preGame.firstLeader == null ? ''
+    : (typeof preGame.firstLeader === 'number' ? String(preGame.firstLeader) : preGame.firstLeader)
+  const flVal = logDraft ? _esc(logDraft.firstLeader) : _esc(flPre)
+  const firstLeaderHTML = `
     <div class="log-field">
-      <div class="log-field-label">New to the game</div>
-      <div class="log-new-row">
-        <span class="log-sub-label">Good</span>
-        <div class="log-num-wrap">
-          <input type="number" id="log-new-good" class="log-num" min="0" max="${gs.players}" placeholder="—">
-          <div class="log-num-btns">
-            <button class="log-num-btn" data-delta="1" tabindex="-1">▲</button>
-            <button class="log-num-btn" data-delta="-1" tabindex="-1">▼</button>
-          </div>
-        </div>
-        <span class="log-sub-label">Evil</span>
-        <div class="log-num-wrap">
-          <input type="number" id="log-new-evil" class="log-num" min="0" max="${gs.players}" placeholder="—">
-          <div class="log-num-btns">
-            <button class="log-num-btn" data-delta="1" tabindex="-1">▲</button>
-            <button class="log-num-btn" data-delta="-1" tabindex="-1">▼</button>
-          </div>
-        </div>
+      <div class="log-field-label">First leader</div>
+      <div class="log-input-wrap">
+        <input type="text" id="log-first-leader" class="log-player-input"
+               value="${flVal}" placeholder="—" autocomplete="off" spellcheck="false">
+        <button class="log-ac-btn" tabindex="-1">▾</button>
       </div>
     </div>`
 
   const notesHTML = `
     <div class="log-field">
       <div class="log-field-label">Notes</div>
-      <textarea id="log-notes" class="log-textarea" placeholder="(optional)" rows="2"></textarea>
+      <textarea id="log-notes" class="log-textarea" placeholder="(optional)" rows="2">${_esc(logDraft ? logDraft.notes : '')}</textarea>
     </div>`
 
   return `
@@ -929,26 +1293,43 @@ function buildLogHTML() {
     ${confHTML}
     ${targetHTML}
     <div class="log-sep"></div>
-    ${newPlayersHTML}
+    ${firstLeaderHTML}
     <div class="log-sep"></div>
     ${notesHTML}
     <button id="log-submit" class="log-submit-btn">Submit &amp; return to main menu</button>
     <div class="log-bottom-pad"></div>`
 }
 
+// Capture the current log-form inputs into logDraft so an ESC-and-reopen restores
+// them. No-op unless the log screen is mounted.
+function captureLogDraft() {
+  if (gs.phase !== 'log') return
+  const seats = [], chars = []
+  document.querySelectorAll('[data-seat-idx]').forEach(el => { seats[+el.dataset.seatIdx] = el.value })
+  document.querySelectorAll('[data-char-idx]').forEach(el => { chars[+el.dataset.charIdx] = el.value })
+  const balEl = document.getElementById('log-balance')
+  const conEl = document.getElementById('log-conf')
+  logDraft = {
+    seats, chars,
+    firstLeader: document.getElementById('log-first-leader')?.value || '',
+    target:      document.getElementById('log-assn-target')?.value || '',
+    notes:       document.getElementById('log-notes')?.value || '',
+    balance:     (balEl && balEl.classList.contains('touched')) ? balEl.value : null,
+    conf:        (conEl && conEl.classList.contains('touched')) ? conEl.value : null,
+  }
+}
+
+// Reads the seat-order roster: one entry per row that has a name and/or a
+// character. team is derived from the chosen character (null if freely typed).
 function buildRosterFromDOM() {
-  const roles    = buildTeamRoles(gs.players, settings.characters)
-  const allRoles = [
-    ...roles.good.map(r => ({ role: r, team: 'good' })),
-    ...roles.evil.map(r => ({ role: r, team: 'evil' })),
-  ]
   const roster = []
-  allRoles.forEach((item, idx) => {
-    const input = document.querySelector(`[data-roster-idx="${idx}"]`)
-    const name = input?.value?.trim() || ''
-    if (!name) return
-    players.findOrCreate(name)
-    roster.push({ name, team: item.team, role: item.role })
+  document.querySelectorAll('[data-char-idx]').forEach(charEl => {
+    const i    = charEl.dataset.charIdx
+    const role = charEl.value.trim()
+    const name = document.querySelector(`[data-seat-idx="${i}"]`)?.value?.trim() || ''
+    if (!name && !role) return
+    if (name) players.findOrCreate(name)
+    roster.push({ seat: Number(i) + 1, name, role, team: logTeamForRole(role) })
   })
   return roster
 }
@@ -1005,9 +1386,171 @@ function calcQ5TargetEnd() {
   return calcNightExpected() + cardTotal + calcDiscussionBudget()
 }
 
+// Crossed-daggers crest for the Assassination row — inline SVG traced from
+// images/daggers.png (all three daggers), so it needs no image asset and
+// fill:currentColor recolors it to match the label, mirroring makeMoon().
 function makeDagger() {
   const el = document.createElement('span')
   el.className = 'sp-dagger'
+  el.innerHTML =
+    `<svg viewBox="0 0 577 648" width="23" height="26" aria-hidden="true"><g transform="translate(0.463786,648.417659) scale(0.100000,-0.100000)"><path d="M2805 6467 c-195 -77 -247 -284 -105 -422 46 -44 47 -51 20 -85 -27
+-35 -25 -61 10 -93 30 -29 39 -60 20 -72 -5 -3 -10 -21 -10 -38 0 -27 -5 -35
+-31 -44 -29 -11 -31 -15 -25 -47 7 -34 7 -34 -81 -40 -111 -8 -355 -36 -366
+-43 -4 -2 -21 7 -38 21 -136 115 -323 -15 -255 -177 44 -108 210 -118 269 -17
+20 33 48 44 142 59 313 47 372 50 384 20 11 -31 1 -34 -117 -42 -62 -5 -105
+-13 -132 -27 -41 -21 -75 -60 -62 -71 11 -9 120 -29 162 -29 56 0 90 -38 91
+-104 1 -28 3 -67 5 -86 3 -43 22 -634 34 -1100 14 -525 21 -670 34 -670 6 0
+74 67 152 148 l141 148 6 200 c4 109 11 379 17 599 23 881 19 802 47 836 19
+22 33 29 62 29 44 0 152 20 164 30 12 11 -32 59 -68 74 -18 8 -64 17 -102 21
+-158 15 -145 11 -136 43 6 26 56 25 258 -4 231 -33 234 -33 259 -75 59 -99
+213 -92 267 12 75 149 -108 297 -238 193 -38 -31 -38 -31 -158 -13 -66 10
+-143 18 -171 19 -139 1 -175 10 -169 44 5 27 2 33 -23 49 -22 12 -29 22 -25
+37 4 13 -3 30 -17 45 -22 23 -22 23 20 69 42 46 42 46 15 92 -27 46 -27 46 13
+88 186 193 -17 519 -263 423z m178 -1004 c-13 -2 -33 -2 -45 0 -13 2 -3 4 22
+4 25 0 35 -2 23 -4z m-186 -366 c10 -13 18 -38 17 -58 -5 -174 -5 -175 -15
+-149 -9 21 -39 194 -39 222 0 15 19 8 37 -15z M288 6236 c-194 -53 -276 -325
+-133 -443 37 -31 37 -31 -5 -103 -250 -427 -195 -864 149 -1193 167 -159 373
+-267 681 -356 156 -45 175 -52 222 -82 27 -17 57 -43 68 -57 24 -30 23 -30 39
+30 19 67 71 116 95 89 10 -11 31 -23 47 -26 33 -7 38 -25 11 -41 -21 -14 -55
+-80 -78 -153 -78 -246 -362 -373 -579 -259 -85 44 -164 143 -165 206 0 28 -19
+28 -54 1 -21 -16 -26 -17 -26 -5 0 25 54 56 98 56 45 0 72 -25 72 -67 0 -44
+51 -18 71 36 26 66 -66 171 -148 171 -237 0 -342 -329 -161 -510 151 -152 441
+-172 705 -50 114 53 158 86 281 209 113 114 132 127 163 111 20 -11 27 -64 9
+-75 -15 -10 -2 -25 22 -25 46 0 100 -26 145 -69 43 -42 289 -317 338 -378 57
+-72 242 -277 252 -280 11 -4 25 9 122 121 58 67 60 57 -32 159 -37 41 -77 86
+-88 98 -11 13 -44 49 -72 79 -29 30 -84 91 -123 135 -39 44 -97 107 -128 140
+-31 33 -56 64 -56 68 0 12 108 -82 160 -140 24 -26 71 -77 104 -113 34 -36 99
+-108 146 -160 176 -197 162 -185 183 -159 17 21 17 23 -1 43 -58 67 -189 213
+-202 226 -130 127 -288 324 -333 416 -72 144 -99 292 -34 186 17 -28 124 -149
+251 -282 39 -41 129 -137 200 -212 150 -161 156 -164 156 -69 0 69 0 69 -132
+197 -443 432 -469 469 -407 554 18 23 21 37 16 74 -7 46 -7 46 33 46 125 0
+227 -105 160 -165 -27 -24 -26 -30 14 -53 40 -24 66 -60 75 -105 17 -82 80 38
+81 154 1 340 -472 452 -618 146 -55 -115 -72 -155 -72 -165 0 -21 -14 -13 -67
+38 -65 62 -65 65 0 94 29 14 85 56 127 95 116 110 187 141 325 141 107 0 245
+-40 245 -71 0 -5 9 -9 20 -9 11 0 20 3 20 6 0 32 -86 263 -106 283 -2 2 -23
+-16 -46 -40 -33 -34 -59 -50 -112 -67 -83 -26 -81 -27 -60 38 19 58 15 199 -8
+258 -15 38 -22 40 -43 9 -19 -30 -85 -67 -119 -67 -32 0 -33 -11 -5 -36 70
+-63 20 -177 -147 -333 -123 -115 -128 -117 -158 -84 -39 41 -35 46 77 93 144
+60 146 63 92 98 -48 31 -48 31 -205 -47 -77 -38 -140 -66 -140 -61 0 19 153
+110 185 110 8 0 15 9 15 20 0 11 -4 20 -8 20 -5 0 -8 10 -8 22 2 41 -97 80
+-213 84 -53 1 -96 6 -96 11 0 19 81 35 153 28 88 -7 88 -4 9 72 -76 73 -113
+87 -226 82 -87 -4 -100 5 -35 28 26 10 59 13 102 8 74 -7 73 -7 20 44 -68 65
+-118 84 -223 87 -49 1 -92 3 -95 4 -3 0 6 7 20 15 29 16 127 20 164 5 44 -17
+43 11 -3 50 -55 48 -112 63 -186 49 -31 -6 -59 -8 -62 -6 -11 11 64 37 109 37
+54 0 58 7 24 39 -40 37 -118 61 -203 61 -60 0 -74 3 -65 12 7 7 45 12 97 12
+97 1 99 3 48 44 -56 43 -93 60 -177 78 -76 17 -92 34 -33 34 18 0 49 -5 70
+-11 53 -14 59 -3 17 33 -63 53 -150 81 -204 67 -36 -10 -43 -5 -26 16 7 9 29
+15 51 15 45 0 49 13 19 62 -32 53 -28 127 10 163 34 33 37 53 13 81 -10 10
+-29 36 -43 56 -36 55 -120 44 -267 -33 -29 -15 -53 -25 -53 -22 0 12 57 54
+103 75 52 24 53 29 15 84 -46 67 -138 96 -230 70z m130 -76 c37 -23 41 -43 10
+-64 -20 -14 -24 -14 -52 9 -17 14 -41 30 -53 35 -23 10 -29 21 -16 33 13 14
+79 6 111 -13z m247 -150 c18 -19 17 -20 -39 -45 -71 -31 -90 -32 -52 -2 16 13
+26 29 22 35 -6 11 19 31 40 32 6 0 19 -9 29 -20z m-309 -423 c5 -14 11 -56 13
+-94 1 -21 5 -22 45 -17 63 9 84 -9 184 -160 178 -268 363 -515 551 -735 58
+-68 121 -141 140 -163 34 -39 34 -39 10 -64 -47 -50 -76 -59 -189 -58 -194 3
+-455 119 -657 292 -59 51 -81 86 -32 52 40 -29 49 -18 13 17 -82 79 -178 244
+-205 353 -19 73 -19 318 0 385 37 137 107 243 127 192z M5370 6244 c-60 -11
+-112 -50 -137 -102 -9 -18 -14 -34 -12 -36 2 -2 24 -14 48 -26 48 -24 77 -48
+68 -56 -2 -3 -20 4 -38 14 -61 34 -149 62 -192 61 -40 0 -44 -3 -85 -65 -43
+-64 -43 -64 -10 -105 41 -51 45 -131 9 -179 -30 -41 -27 -50 17 -50 21 0 48
+-9 62 -20 25 -19 25 -19 -41 -13 -74 6 -144 -19 -203 -72 -38 -34 -30 -39 43
+-24 45 10 64 10 72 2 12 -12 -43 -33 -85 -33 -43 0 -192 -93 -180 -112 4 -5
+21 -7 40 -4 40 8 134 -3 134 -15 0 -5 -26 -9 -57 -9 -76 0 -156 -22 -199 -55
+-46 -35 -43 -45 14 -45 45 0 120 -26 108 -37 -3 -3 -27 1 -54 8 -64 16 -124 0
+-187 -48 -45 -34 -63 -73 -27 -58 52 23 192 13 192 -14 0 -3 -42 -7 -93 -8
+-102 -1 -138 -15 -211 -80 -50 -44 -47 -57 10 -48 48 7 138 -10 154 -30 6 -8
+-17 -10 -83 -7 -114 5 -148 -8 -229 -85 -64 -62 -75 -88 -30 -76 66 19 212 1
+212 -27 0 -3 -45 -6 -100 -7 -139 -3 -228 -42 -226 -99 1 -32 6 -38 51 -63 84
+-45 114 -64 120 -78 2 -8 1 -12 -3 -10 -86 45 -263 127 -273 127 -8 0 -27 -11
+-44 -24 -43 -35 -40 -38 138 -120 59 -27 59 -27 35 -58 -35 -45 -38 -45 -109
+19 -217 196 -288 332 -203 388 33 21 30 35 -6 35 -41 0 -83 23 -113 61 -31 40
+-40 34 -58 -38 -19 -79 -18 -178 4 -232 21 -51 18 -57 -20 -44 -15 6 -47 17
+-71 24 -25 7 -60 29 -81 51 -21 21 -43 38 -48 38 -20 0 -103 -215 -103 -266 0
+-30 2 -30 51 6 59 42 131 60 244 60 123 0 187 -28 290 -125 92 -88 123 -110
+168 -125 47 -15 47 -16 -16 -78 -57 -57 -77 -64 -77 -29 0 12 -7 32 -15 43 -8
+12 -24 46 -35 77 -23 61 -82 134 -134 167 -263 162 -606 -125 -478 -401 32
+-70 46 -77 60 -30 15 48 45 87 84 107 30 16 30 16 9 38 -73 77 24 185 156 174
+40 -3 40 -5 27 -60 -4 -19 0 -36 15 -57 59 -83 44 -103 -421 -570 -216 -218
+-420 -425 -453 -461 -32 -36 -86 -94 -120 -130 -121 -129 -494 -549 -675 -760
+-30 -36 -71 -83 -90 -105 -20 -22 -56 -65 -80 -95 -24 -30 -75 -92 -113 -137
+-146 -174 -48 -90 288 249 321 323 398 403 640 658 44 47 204 214 355 370 151
+157 311 323 355 370 44 47 119 125 166 175 102 107 185 199 237 265 32 39 32
+22 1 -72 -26 -81 -38 -109 -84 -197 -20 -38 -106 -141 -244 -293 -125 -137
+-239 -263 -287 -318 -21 -25 -41 -47 -44 -50 -3 -3 -43 -48 -90 -100 -47 -52
+-87 -97 -90 -100 -72 -69 -175 -219 -161 -233 9 -9 26 2 68 48 129 137 183
+195 263 285 47 52 92 102 100 110 8 8 44 49 80 90 63 73 94 108 210 235 100
+110 242 247 248 240 4 -3 2 -9 -3 -13 -6 -4 -44 -45 -85 -92 -41 -47 -82 -92
+-90 -100 -9 -8 -90 -98 -180 -200 -91 -102 -167 -187 -170 -190 -3 -3 -39 -43
+-80 -90 -41 -47 -98 -110 -126 -140 -28 -30 -69 -75 -90 -100 -21 -25 -59 -67
+-84 -93 -60 -64 -58 -56 -59 -264 -2 -214 -2 -214 81 -110 32 40 68 83 80 97
+13 14 68 77 122 140 54 63 117 135 140 160 113 123 402 450 516 584 25 30 43
+50 204 234 93 106 130 132 204 140 35 4 42 8 36 21 -21 46 -11 76 28 79 33 3
+41 -2 95 -59 111 -119 128 -136 192 -183 314 -231 778 -200 905 60 79 161 -2
+370 -159 414 -143 40 -279 -107 -186 -201 38 -38 51 -37 51 4 0 64 88 93 138
+47 23 -22 29 -40 12 -40 -5 0 -10 4 -10 8 0 12 -46 32 -54 25 -3 -4 -6 -20 -6
+-38 0 -111 -177 -235 -334 -235 -201 1 -342 115 -423 345 -9 27 -32 68 -50 92
+-40 52 -39 49 -5 58 15 3 35 13 44 22 35 31 108 -43 108 -110 0 -34 -1 -34 51
+12 56 52 114 80 224 109 418 112 670 264 862 521 218 290 225 734 16 1043 -46
+67 -46 73 -7 103 183 139 -1 490 -236 449z m74 -70 c21 -8 20 -30 -1 -37 -10
+-4 -32 -18 -49 -32 -31 -25 -31 -25 -58 -4 -30 23 -27 33 18 60 32 19 62 24
+90 13z m-274 -173 c0 -11 10 -27 22 -35 36 -25 12 -30 -37 -7 -24 11 -49 21
+-55 21 -12 0 -12 3 -4 24 10 25 74 22 74 -3z m298 -443 c59 -87 101 -283 89
+-417 -11 -122 -80 -316 -132 -368 -8 -8 -15 -17 -15 -21 0 -4 -25 -33 -55 -66
+-52 -56 -65 -76 -47 -76 4 0 20 11 35 25 15 14 27 21 27 16 0 -19 -129 -125
+-217 -179 -285 -175 -547 -228 -668 -136 -57 44 -59 33 36 139 183 201 450
+551 639 835 111 165 120 174 193 168 42 -3 42 -3 45 47 6 85 27 95 70 33z
+M800 4054 c0 -3 14 -22 30 -43 39 -47 70 -129 70 -181 0 -49 12 -51 28 -7 30
+82 3 171 -63 215 -33 21 -65 29 -65 16z M4896 4031 c-69 -49 -93 -130 -62
+-206 21 -49 34 -43 34 14 0 53 41 158 73 187 45 41 11 45 -45 5z M2558 2767
+c-141 -141 -453 -466 -648 -677 -74 -80 -142 -152 -150 -160 -8 -8 -39 -42
+-69 -75 -30 -33 -93 -101 -140 -150 -47 -50 -124 -133 -171 -185 -47 -52 -112
+-124 -146 -160 -57 -60 -127 -138 -264 -295 -239 -273 -306 -356 -368 -457
+-91 -149 -281 -428 -330 -486 -61 -72 -61 -78 -6 -58 169 63 200 76 374 163
+425 213 650 406 1255 1078 59 66 205 228 324 360 475 527 417 441 425 631 10
+235 23 236 -198 -11 -55 -60 -136 -150 -180 -199 -45 -49 -85 -94 -91 -100 -5
+-6 -28 -31 -49 -56 -21 -25 -67 -74 -100 -110 -34 -36 -74 -81 -90 -100 -15
+-19 -47 -55 -70 -80 -22 -25 -84 -92 -136 -150 -52 -58 -120 -132 -151 -165
+-31 -33 -76 -82 -100 -109 -42 -47 -145 -158 -271 -291 -32 -33 -58 -57 -58
+-53 0 4 10 18 22 30 13 13 48 53 78 88 30 36 61 72 70 80 8 8 28 31 44 50 15
+19 51 60 80 90 28 31 66 73 85 95 18 22 54 63 80 90 25 28 80 88 121 135 41
+47 98 110 126 140 46 50 100 110 303 340 36 41 111 124 166 184 291 319 325
+360 325 397 0 41 -11 37 -74 -28 -37 -38 -56 -52 -56 -41 0 9 5 20 10 23 6 3
+10 13 10 22 0 8 29 73 65 144 93 186 89 191 -47 56z M3316 2809 c-14 -17 -26
+-35 -26 -40 0 -14 520 -544 773 -789 67 -65 109 -89 60 -34 -10 10 -30 35 -45
+56 -15 20 -33 42 -40 50 -7 7 -25 29 -40 50 -15 20 -34 42 -41 50 -7 7 -49 56
+-92 108 -72 87 -281 328 -295 340 -3 3 -52 58 -109 123 -116 132 -110 128
+-145 86z M3222 2697 c-22 -24 -28 -55 -14 -72 13 -17 34 -86 27 -93 -3 -3 -23
+14 -44 38 -34 39 -40 43 -55 31 -25 -21 -19 -42 22 -86 40 -42 333 -370 416
+-464 85 -97 290 -325 316 -351 3 -3 39 -43 80 -90 41 -47 77 -87 80 -90 3 -3
+34 -39 70 -80 36 -41 67 -77 70 -80 3 -3 43 -48 90 -100 278 -310 360 -405
+360 -414 0 -13 -147 141 -350 364 -52 58 -97 107 -100 110 -3 3 -68 75 -144
+160 -77 85 -174 193 -216 240 -42 47 -123 137 -180 200 -57 63 -122 135 -144
+160 -23 25 -79 88 -126 140 -47 52 -89 100 -95 106 -5 6 -41 45 -79 88 -37 42
+-72 76 -77 76 -5 0 -9 -79 -9 -174 0 -191 -1 -189 184 -386 28 -30 85 -93 126
+-140 41 -47 77 -87 80 -90 13 -13 123 -135 200 -220 69 -77 196 -216 220 -240
+3 -3 25 -27 49 -55 370 -417 661 -682 931 -845 87 -53 378 -200 395 -200 2 0
+28 -11 57 -24 74 -34 166 -65 172 -59 3 3 -21 38 -53 77 -32 39 -102 139 -156
+221 -54 83 -127 195 -163 250 -105 161 -293 386 -606 725 -28 30 -71 78 -95
+105 -114 129 -331 363 -411 445 -14 14 -72 77 -130 140 -123 135 -240 259
+-401 425 -64 66 -149 155 -189 198 -83 87 -79 85 -108 54z M2900 2324 c-192
+-222 -172 -170 -165 -434 7 -285 33 -771 55 -1042 26 -313 31 -371 41 -473 28
+-294 48 -412 63 -364 9 30 37 273 56 494 6 66 15 167 20 225 20 214 39 512 60
+935 12 233 13 805 3 804 -5 0 -64 -65 -133 -145z"/></g></svg>`
+  return el
+}
+
+// Crescent moon glyph for the Night row — inline SVG (a disc minus an offset
+// disc) so it needs no image asset; fill:currentColor makes it match the label.
+let _moonId = 0
+function makeMoon() {
+  const el = document.createElement('span')
+  el.className = 'sp-moon'
+  const id = 'sp-moon-mask-' + (_moonId++)
+  el.innerHTML =
+    `<svg viewBox="0 0 24 24" width="22" height="22">` +
+    `<defs><mask id="${id}"><rect width="24" height="24" fill="#fff"/>` +
+    `<circle cx="15.5" cy="10.5" r="8.5" fill="#000"/></mask></defs>` +
+    `<circle cx="12" cy="12" r="9.5" mask="url(#${id})"/></svg>`
   return el
 }
 
@@ -1018,6 +1561,15 @@ function renderSplitPanel() {
   // even if no new target row ends up being rendered (e.g. game-over state).
   const animateTarget = sidebarAnimatePending
   sidebarAnimatePending = false
+
+  // Consume the one-shot pop request the same way, so it never lingers to a later render.
+  const popRequest = sidebarPop
+  sidebarPop = null
+
+  // Pre-night phases (menu, add-players setup, first-leader screen) all show the
+  // same full projected preview, so the panel keeps one layout from menu through
+  // to when night actually begins.
+  const preNight = gs.phase === 'menu' || gs.phase === 'setup' || gs.phase === 'leader'
 
   // When a new target row is about to appear, animate the old one out simultaneously.
   // Clone it as a fixed-position ghost so the panel can be cleared freely,
@@ -1051,7 +1603,7 @@ function renderSplitPanel() {
     const entry = document.createElement('div')
     entry.className = 'sp-entry'
     const labelEl = document.createElement('span')
-    labelEl.className = 'sp-label'
+    labelEl.className = 'sp-label sp-opt-label'
     if (label instanceof Node) {
       labelEl.append(label)
       entry.style.alignItems = 'center'
@@ -1071,17 +1623,20 @@ function renderSplitPanel() {
     return entry
   }
 
-  // Total time header
-  const totalEntry = document.createElement('div')
-  totalEntry.className = 'sp-entry'
-  const totalLabel = document.createElement('span')
-  totalLabel.className = 'sp-label sp-label-active'
+  // Total-time header — stacked: label, big elapsed clock, target duration beneath
+  const totalHeader = document.createElement('div')
+  totalHeader.id = 'sp-total-header'
+  const totalLabel = document.createElement('div')
+  totalLabel.className = 'sp-tt-label'
   totalLabel.textContent = 'TOTAL'
-  const totalTimeEl = document.createElement('span')
+  const totalTimeEl = document.createElement('div')
   totalTimeEl.id = 'total-time'
   totalTimeEl.textContent = fmt(gs.totalSecs)
-  totalEntry.append(totalLabel, totalTimeEl)
-  panel.append(totalEntry)
+  const totalOf = document.createElement('div')
+  totalOf.className = 'sp-tt-of'
+  totalOf.innerHTML = `of <b>${fmt(settings.targetTime * 60)}</b> target`
+  totalHeader.append(totalLabel, totalTimeEl, totalOf)
+  panel.append(totalHeader)
 
   const topSep = document.createElement('div')
   topSep.className = 'sp-sep'
@@ -1093,12 +1648,15 @@ function renderSplitPanel() {
   // Frozen night entry — shown once night phase is complete
   if (gs.nightSecs > 0) {
     const entry = document.createElement('div')
-    entry.className = 'sp-entry'
+    entry.className = 'sp-entry sp-night-frozen'  // extra gap below, before the Q rows
     const label = document.createElement('span')
-    label.className = 'sp-label sp-label-active sp-mono-label'
-    label.textContent = 'Nite'
+    label.className = 'sp-label sp-label-active sp-opt-label'
+    label.appendChild(makeMoon())
+    entry.style.alignItems = 'center'
     const timeEl = document.createElement('span')
     timeEl.className = 'sp-time'
+    // Pop the night time on the render right after it freezes (night → game).
+    if (popRequest && popRequest.type === 'night') timeEl.classList.add('sp-pop-t')
     timeEl.style.color = 'var(--accent)'
     timeEl.textContent = fmt(gs.nightSecs)
     entry.append(label, timeEl)
@@ -1110,10 +1668,12 @@ function renderSplitPanel() {
     const entry = document.createElement('div')
     entry.className = 'sp-entry'
     const label = document.createElement('span')
-    label.className = 'sp-label sp-label-active sp-mono-label'
-    label.textContent = 'Nite'
+    label.className = 'sp-label sp-label-active sp-opt-label'
+    label.appendChild(makeMoon())
+    entry.style.alignItems = 'center'
     const timeEl = document.createElement('span')
     timeEl.className = 'sp-time'
+    timeEl.style.color = 'var(--cream)'   // running timer matches the total clock
     timeEl.innerHTML = `<span id="sp-night-tt">${fmt(gs.totalSecs)}</span>`
     entry.append(label, timeEl)
     splitsWrap.append(entry)
@@ -1122,7 +1682,7 @@ function renderSplitPanel() {
     const targetEntry = document.createElement('div')
     targetEntry.className = 'sp-entry sp-target' + (animateTarget ? ' sp-future' : '')
     targetEntry.innerHTML =
-      `<span class="sp-label sp-mono-label" style="font-size:11px;letter-spacing:0.5px">target:</span>` +
+      `<span class="sp-label sp-mono-label" style="font-size:11px;letter-spacing:0.5px">goal:</span>` +
       `<span class="sp-time" style="color:var(--dim)">${fmt(calcNightExpected())}</span>`
     splitsWrap.append(targetEntry)
   }
@@ -1136,9 +1696,16 @@ function renderSplitPanel() {
     const col       = res === 'success' ? 'var(--good-fill)' : 'var(--evil-fill)'
     const entry     = document.createElement('div')
     entry.className = 'sp-entry'
-    entry.innerHTML = `<span class="sp-label sp-q-label" style="color:${col}">Q${i + 1}</span>` +
+    // On the render where this quest flips to its resolved color, pop just the two
+    // elements the outcome keypress changed: the Q-label (now red/blue) and the
+    // card timer (right split, now frozen). The middle voting time already popped
+    // on the earlier vote-pass, so it stays put. This matches the circle's lock-in
+    // (0.85s), so the two-element pop syncs with the big circle's resolve animation.
+    const popOutcome = popRequest && popRequest.type === 'resolve' && popRequest.index === i
+    const outcomeDur = popOutcome ? ';--sp-pop-dur:0.85s' : ''
+    entry.innerHTML = `<span class="sp-label sp-q-label${popOutcome ? ' sp-pop' : ''}" style="color:${col}${outcomeDur}">Q${i + 1}</span>` +
       `<span class="sp-time" style="color:var(--accent)">${fmt(votingDur)}</span>` +
-      `<span class="sp-split" style="color:var(--accent)">(${fmt(cardDur)})</span>`
+      `<span class="sp-split${popOutcome ? ' sp-pop-t' : ''}" style="color:var(--accent)${outcomeDur}">(${fmt(cardDur)})</span>`
     splitsWrap.append(entry)
   }
 
@@ -1154,7 +1721,14 @@ function renderSplitPanel() {
 
     const timeWrap = document.createElement('span')
     timeWrap.className = 'sp-time'
-    if (!gs.voting) timeWrap.style.color = 'var(--accent)'
+    // Pop only the middle timer on the render right after the voting timer froze
+    // (vote pass) — that single value is the element the keypress changed.
+    if (popRequest && popRequest.type === 'freeze') {
+      timeWrap.classList.add('sp-pop-t')
+    }
+    // Running quest timer matches the total clock's running color (cream);
+    // once voting freezes it reverts to the accent used by resolved splits.
+    timeWrap.style.color = gs.voting ? 'var(--cream)' : 'var(--accent)'
 
     const ttSpan = document.createElement('span')
     ttSpan.id = 'sp-active-tt'
@@ -1168,7 +1742,8 @@ function renderSplitPanel() {
     qtSpan.textContent = gs.voting
       ? `(${fmt(0)})`
       : `(${fmt(gs.questSecs - gs.questVotingFrozen[i])})`
-    if (!gs.voting) qtSpan.style.color = 'var(--sb-val)'
+    // In the card phase the split is the live-running counter — match the total clock (cream).
+    if (!gs.voting) qtSpan.style.color = 'var(--cream)'
 
     timeWrap.append(ttSpan)
     entry.append(label, timeWrap, qtSpan)
@@ -1186,7 +1761,7 @@ function renderSplitPanel() {
     const entry     = document.createElement('div')
     entry.className = 'sp-entry sp-target' + (animateTarget ? ' sp-future' : '')
     entry.innerHTML =
-      `<span class="sp-label sp-mono-label" style="font-size:11px;letter-spacing:0.5px">target:</span>` +
+      `<span class="sp-label sp-mono-label" style="font-size:11px;letter-spacing:0.5px">goal:</span>` +
       `<span class="sp-time" style="color:var(--dim)">${fmt(votingAlloc)}</span>` +
       `<span class="sp-split">(${fmt(cardAlloc)})</span>`
     splitsWrap.append(entry)
@@ -1195,13 +1770,13 @@ function renderSplitPanel() {
   // Projected schedule: each upcoming phase as a target timestamp —
   // "what should the total-time clock read when this phase is done?"
   {
-    const firstFuture = gs.phase === 'menu' || gs.phase === 'night' ? 0
+    const firstFuture = preNight || gs.phase === 'night' ? 0
                       : gs.phase === 'game' ? gs.currentQuest + 1 : 5
     let cursor
-    if (gs.phase === 'menu') {
+    if (preNight) {
       // Full pre-game preview: show NIGHT target first, then quests
       cursor = calcNightExpected()
-      splitsWrap.append(budgetEntry('Night', cursor))
+      splitsWrap.append(budgetEntry(makeMoon(), cursor))
     } else if (gs.phase === 'night') {
       // Night in progress: project quests from when night is expected to end
       cursor = Math.max(gs.totalSecs, calcNightExpected())
@@ -1239,10 +1814,13 @@ function renderSplitPanel() {
     const entry = document.createElement('div')
     entry.className = 'sp-entry'
     const labelEl = document.createElement('span')
-    labelEl.className = 'sp-label sp-mono-label'
-    labelEl.textContent = 'Assn'
+    labelEl.className = 'sp-label sp-opt-label'
+    labelEl.appendChild(makeDagger())
+    entry.style.alignItems = 'center'
     const timeEl = document.createElement('span')
     timeEl.className = 'sp-time'
+    // Pop the assassination time on the render right after it freezes (G/E keypress).
+    if (popRequest && popRequest.type === 'assn') timeEl.classList.add('sp-pop-t')
     timeEl.style.color = 'var(--accent)'
     timeEl.textContent = fmt(gs.assnSecs)
     entry.append(labelEl, timeEl)
@@ -1254,10 +1832,12 @@ function renderSplitPanel() {
     const timerEntry = document.createElement('div')
     timerEntry.className = 'sp-entry'
     const timerLabel = document.createElement('span')
-    timerLabel.className = 'sp-label sp-label-active sp-mono-label'
-    timerLabel.textContent = 'Assn'
+    timerLabel.className = 'sp-label sp-label-active sp-opt-label'
+    timerLabel.appendChild(makeDagger())
+    timerEntry.style.alignItems = 'center'
     const timeWrap = document.createElement('span')
     timeWrap.className = 'sp-time'
+    timeWrap.style.color = 'var(--cream)'   // running timer matches the total clock
     const ttSpan = document.createElement('span')
     ttSpan.id = 'sp-assn-tt'
     ttSpan.textContent = fmt(gs.totalSecs - gs.assnStart)
@@ -1268,14 +1848,14 @@ function renderSplitPanel() {
     const assnTarget = document.createElement('div')
     assnTarget.className = 'sp-entry sp-target' + (animateTarget ? ' sp-future' : '')
     assnTarget.innerHTML =
-      `<span class="sp-label sp-mono-label" style="font-size:11px;letter-spacing:0.5px">target:</span>` +
+      `<span class="sp-label sp-mono-label" style="font-size:11px;letter-spacing:0.5px">goal:</span>` +
       `<span class="sp-time" style="color:var(--dim)">${fmt(gs.assnRef)}</span>`
     splitsWrap.append(assnTarget)
   }
 
   // Assassination budget lookahead — shown when not yet reached and Merlin is in play
-  if ((gs.phase === 'menu' || gs.phase === 'night' || gs.phase === 'game') && settings.characters.merlin) {
-    splitsWrap.append(budgetEntry('Assn', calcAssnBudget() - calcQ5TargetEnd()))
+  if ((preNight || gs.phase === 'night' || gs.phase === 'game') && settings.characters.merlin) {
+    splitsWrap.append(budgetEntry(makeDagger(), calcAssnBudget() - calcQ5TargetEnd()))
   }
 
   panel.append(splitsWrap)
@@ -1354,7 +1934,7 @@ function renderScrollQuote() {
 }
 
 function buildQuoteWavePath() {
-  const FONT      = 'Franken, Georgia, serif'
+  const FONT      = 'AnglicanText, Georgia, serif'
   const BASE_SIZE = 43
   const HALF_PER  = 72      // half wave period — zero-crossings at multiples of this
   const Y         = 58
@@ -1367,57 +1947,52 @@ function buildQuoteWavePath() {
 
   const text = tp.textContent.trim()
 
-  // Measure text width, then round up to nearest half-period so the right edge
-  // lands on a wave zero-crossing and the seam matches the scroll PNG images.
-  const span = document.createElement('span')
-  span.style.cssText = `position:fixed;top:-9999px;left:-9999px;white-space:nowrap;` +
-                       `font-family:${FONT};font-size:${BASE_SIZE}px;`
-  span.textContent = text
-  document.body.appendChild(span)
-  const measured = span.getBoundingClientRect().width
-  document.body.removeChild(span)
-
   const bestSize = BASE_SIZE
-  // Scroll images sit on top (z-index 4), hiding the seam — no need to align
-  // the right edge to a wave zero-crossing, so use exact measured width.
-  const textW  = Math.ceil(measured + 4)   // +4 px safety buffer — tight fit around the text
-  const END_PAD = 14                       // extra blank scroll between text and the right cap
-  const bestW  = textW + END_PAD
-
-  // Apply font size and rect width
+  // Apply the font size to the real SVG text before measuring it.
   tp.parentElement.setAttribute('font-size', bestSize)
+
+  // Measure the ACTUAL SVG text element, not a separate HTML span: SVG lays
+  // glyphs along the textPath with slightly different metrics than HTML text,
+  // and for some quotes it rendered wider than the span measured — leaving the
+  // parchment too narrow so the text overflowed past the right scroll cap.
+  let measured = 0
+  if (typeof tp.getComputedTextLength === 'function') measured = tp.getComputedTextLength()
+  if (!measured) {
+    // Fallback (e.g. fonts not yet ready): measure with a hidden HTML span.
+    const span = document.createElement('span')
+    span.style.cssText = `position:fixed;top:-9999px;left:-9999px;white-space:nowrap;` +
+                         `font-family:${FONT};font-size:${BASE_SIZE}px;`
+    span.textContent = text
+    document.body.appendChild(span)
+    measured = span.getBoundingClientRect().width
+    document.body.removeChild(span)
+  }
+  // Each scroll-roll image overlaps the parchment end by ROLL_OVERLAP px and sits
+  // on top of it (z-index 4). The text must be inset past that overlap plus a small
+  // blank gap, or its ends render on top of / past the rolls. A previous version
+  // aligned the right roll to a wave zero-crossing, which could push the overlap up
+  // to ~50px and cover the tail of longer quotes ("text too far right at the end").
+  // Fixed, symmetric insets keep the text clear of both rolls for every quote.
+  const ROLL_OVERLAP = 20                  // how much each roll image sits over the parchment
+  const EDGE_GAP     = 10                  // blank parchment between a roll and the text
+  const INSET        = ROLL_OVERLAP + EDGE_GAP
+  const textW  = Math.ceil(measured + 4)   // +4 px safety buffer — tight fit around the text
+  const bestW  = INSET + textW + INSET
+
+  // Apply rect width (font size already set above, before measuring)
   rect.style.width    = bestW + 'px'
   rect.style.minWidth = 'unset'
-  // Anchor text at the tight-fit centre (not bestW's centre) so the extra
-  // END_PAD only opens up space on the right, before the scroll cap.
-  tp.setAttribute('startOffset', textW / 2)
+  // Centre the text within its inset region so it clears both rolls symmetrically.
+  tp.setAttribute('startOffset', INSET + textW / 2)
 
-  // Dynamic right margin: find the overlap value (in [0, rightImgW]) that places
-  // the right junction at a wave zero-crossing (x % 72 = 0), so the parchment
-  // top/bottom edges are always at their baseline height where they meet the scroll cap.
-  const RIGHT_IMG_W  = 50
-  const RIGHT_BASE   = 18
-  const HALF_PER_DYN = 72
-  const refJunction  = bestW - RIGHT_BASE
-  const crossings = [
-    Math.floor(refJunction / HALF_PER_DYN) * HALF_PER_DYN,
-    Math.ceil(refJunction  / HALF_PER_DYN) * HALF_PER_DYN,
-  ]
-  let rightMargin = RIGHT_BASE, bestDiff = Infinity
-  for (const c of crossings) {
-    const m = bestW - c
-    if (m >= 0 && m <= RIGHT_IMG_W) {
-      const diff = Math.abs(m - RIGHT_BASE)
-      if (diff < bestDiff) { bestDiff = diff; rightMargin = m }
-    }
-  }
+  // Constant right-roll overlap (left roll uses the CSS margin-right; both = ROLL_OVERLAP).
   const scrollRight = document.querySelector('.scroll-img-right')
-  if (scrollRight) scrollRight.style.marginLeft = -rightMargin + 'px'
+  if (scrollRight) scrollRight.style.marginLeft = -ROLL_OVERLAP + 'px'
 
-  // Keep the valley-shade seam fade boundary in sync with the dynamic margin.
+  // Fade the valley shade out under each roll so the parchment matches the roll at the seam.
   const valleyShade = document.querySelector('.quote-valley-shade')
   if (valleyShade) {
-    const mask = `linear-gradient(to right, transparent 20px, black 80px, black calc(100% - 80px), transparent calc(100% - ${rightMargin}px))`
+    const mask = `linear-gradient(to right, transparent ${ROLL_OVERLAP}px, black 80px, black calc(100% - 80px), transparent calc(100% - ${ROLL_OVERLAP}px))`
     valleyShade.style.webkitMaskImage = mask
     valleyShade.style.maskImage       = mask
   }
@@ -1428,13 +2003,13 @@ function buildQuoteWavePath() {
   if (textSvg) {
     const sqBounds   = document.getElementById('scroll-quote').getBoundingClientRect()
     const rectBounds = rect.getBoundingClientRect()
-    textSvg.style.left  = (rectBounds.left - sqBounds.left + 8) + 'px'
+    textSvg.style.left  = (rectBounds.left - sqBounds.left) + 'px'
     textSvg.setAttribute('width',  bestW)
     textSvg.setAttribute('height', '100')
   }
 
-  // Build wave path — runs the full padded bestW; text stops short of the end
-  // because startOffset is pinned to textW's centre (see above), leaving END_PAD blank.
+  // Build wave path — runs the full bestW; the text is centred within its inset
+  // region (see above), leaving blank parchment under each roll.
   const f = n => n.toFixed(1)
   let d = `M 0,${Y}`
   for (let x = 0; x + PERIOD <= bestW; x += PERIOD) {
@@ -1460,6 +2035,7 @@ function renderOverlay() {
   const overlay = document.getElementById('phase-overlay')
   const body    = document.getElementById('overlay-body')
   const hint    = document.getElementById('overlay-hint')
+  body.classList.remove('setup-centered')   // only the Add-names screen re-adds it
 
   // Replaces overlay body content.
   // Triggers a fade-in animation when the content category (tag) changes —
@@ -1494,7 +2070,7 @@ function renderOverlay() {
         const labelInner = row.desc
           ? `${row.label}<span class="menu-row-desc">${row.desc}</span>`
           : row.label
-        return `<div class="${cls}"><span class="menu-row-label">${labelInner}</span>` +
+        return `<div class="${cls}" data-menu-key="${row.key}"><span class="menu-row-label">${labelInner}</span>` +
                `<span class="${valClass}">${row.value}</span></div>`
       }).join('')
     }
@@ -1523,10 +2099,14 @@ function renderOverlay() {
         { key: 'excalibur', label: 'EXCALIBUR',         value: settings.abilities.excalibur ? 'ON' : 'OFF',
           isOn: settings.abilities.excalibur },
         { key: 'sep3' },
+        { key: 'setup',     label: 'ADD NAMES',         value: (() => {
+            const n = preGame.seating.filter(x => x && x.trim()).length
+            return n ? `${n} ▸` : '▸'
+          })() },
         { key: 'start',     label: 'START GAME',        value: '▸', isOn: true },
       ]
       setBody('menu-main', `
-        <div class="ov-title grad-title">Avalon</div>
+        <div class="ov-title grad-title" style="font-family:'EnchantedLand',Georgia,serif">Avalon</div>
         <div class="ov-rule" style="margin:20px 0"></div>
         <div class="menu-settings">${buildMenuHTML(rowDefs)}</div>
       `)
@@ -1546,24 +2126,115 @@ function renderOverlay() {
         { key: 'back',     label: '← back',   value: '' },
       ]
       setBody('menu-chars', `
-        <div class="ov-title grad-title" style="font-family:'Franken',Georgia,serif; font-size:56px; letter-spacing:2px">Characters</div>
+        <div class="ov-title grad-title" style="font-size:56px; letter-spacing:2px">Characters</div>
         <div class="ov-rule" style="margin:16px 0"></div>
         <div class="menu-settings">${buildMenuHTML(rowDefs)}</div>
       `)
       hint.textContent = '[↑↓] select   [←→] toggle   [ESC] back'
     }
 
+    // Menu rows are clickable too (mirrors keyboard navigation).
+    body.querySelector('.menu-settings')?.addEventListener('click', e => {
+      const row = e.target.closest('.menu-row[data-menu-key]')
+      if (row) handleMenuClick(row.dataset.menuKey)
+    })
+
+  } else if (gs.phase === 'setup') {
+    overlay.classList.remove('hidden')
+    overlay.classList.remove('overlay-raised')
+    body.classList.add('log-active')
+    body.classList.add('setup-centered')
+    setBody('setup', buildSetupHTML())
+
+    // Seat-name autocomplete (known players + whatever is typed in other seats)
+    const seatOptions = () => {
+      const known = new Set(players.getAll())
+      document.querySelectorAll('[data-seat-idx]').forEach(el => {
+        const v = el.value.trim(); if (v) known.add(v)
+      })
+      return [...known]
+    }
+    // Auto-open chain: on entry, open the first unfilled seat's dropdown, then
+    // advance to the next unfilled seat on each pick. Clicking outside stops it.
+    const seatInputs = [...document.querySelectorAll('[data-seat-idx]')]
+    const seatHandles = new Map()
+    let seatChainActive = true
+    const seatOnOutside = e => { if (!e.target.closest('.log-ac-item')) seatEndChain() }
+    function seatEndChain() {
+      seatChainActive = false
+      document.removeEventListener('mousedown', seatOnOutside, true)
+    }
+    function seatAdvance(fromIdx) {
+      if (!seatChainActive) return
+      const next = seatInputs.find(inp => +inp.dataset.seatIdx >= fromIdx && !inp.value.trim())
+      if (next) seatHandles.get(next).openAll()
+      else seatEndChain()
+    }
+    const submitSetup = () => {
+      if (hasDuplicateNames()) {
+        document.getElementById('setup-dup-warning')?.classList.add('show')
+        return
+      }
+      syncSeatsToPreGame()
+      preGame.seating.forEach(nm => { if (nm) players.findOrCreate(nm) })
+      gs.phase = setupReturnPhase
+      renderOverlay()
+    }
+    // Enter (menu closed) tabs to the next seat, or Done from the last one.
+    const seatAdvanceKey = input => () => { if (!focusNextLogField(input)) submitSetup() }
+
+    seatInputs.forEach(input => {
+      const h = attachLogAutocomplete(input, seatOptions,
+        () => seatAdvance(+input.dataset.seatIdx + 1), seatAdvanceKey(input), 'ac-big')
+      seatHandles.set(input, h)
+      input.addEventListener('input', syncSeatsToPreGame)
+      input.addEventListener('blur', () => {
+        const name = input.value.trim()
+        if (name) players.findOrCreate(name)
+      })
+    })
+    document.addEventListener('mousedown', seatOnOutside, true)
+    setTimeout(() => seatAdvance(0), 0)   // open the first unfilled seat
+
+    document.getElementById('setup-done')?.addEventListener('click', submitSetup)
+
+    hint.textContent = '[ESC] back'
+
+  } else if (gs.phase === 'leader') {
+    overlay.classList.remove('hidden')
+    overlay.classList.add('overlay-raised')
+    body.classList.remove('log-active')
+    _leaderConfirm = false                    // fresh each time the screen renders
+    setBody('leader', buildLeaderHTML())
+
+    const leaderInput = document.getElementById('leader-input')
+    if (leaderInput) {
+      // dropdown / free-type manual entry, suggesting the entered seat names
+      attachLogAutocomplete(leaderInput, () =>
+        preGame.seating.map(n => (n || '').trim()).filter(Boolean))
+      leaderInput.addEventListener('input', () => {
+        leaderInput.classList.remove('locked-in')   // manual edit drops the glow
+        syncLeaderInput()
+        if (leaderHasChoice()) leaderResetConfirm()
+      })
+    }
+    document.getElementById('leader-randomize')?.addEventListener('click', leaderRandomize)
+    document.getElementById('leader-addplayers')?.addEventListener('click', leaderAddPlayers)
+    document.getElementById('leader-continue')?.addEventListener('click', leaderContinue)
+
+    hint.textContent = '[SPACE] randomize   [P] add names   [ENTER] continue'
+
   } else if (gs.phase === 'night') {
     overlay.classList.remove('hidden')
     overlay.classList.add('overlay-raised')
     setBody('night', `
-      <div class="ov-title grad-title" style="font-family:'Franken',Georgia,serif; font-size:120px; letter-spacing:4px">Night phase</div>
+      <div class="ov-title grad-title" style="font-size:120px; letter-spacing:4px">Night phase</div>
       <div class="ov-rule"></div>
       <div class="ov-body">
-        Memorise your character card.<br>
-        Close your eyes.<br>
-        Form a fist in front of you.<br>
-        Listen for further instructions.
+        <div class="grad-line">Memorise your character card.</div>
+        <div class="grad-line">Close your eyes.</div>
+        <div class="grad-line">Form a fist in front of you.</div>
+        <div class="grad-line">Listen for further instructions.</div>
       </div>
     `)
     hint.textContent = '[ENTER] continue'
@@ -1573,17 +2244,7 @@ function renderOverlay() {
     overlay.classList.remove('overlay-raised')
     body.classList.add('log-active')
     setBody('log', buildLogHTML())
-    // Spinner buttons for new-player count inputs
-    body.addEventListener('click', e => {
-      const btn = e.target.closest('.log-num-btn')
-      if (!btn) return
-      const input = btn.closest('.log-num-wrap')?.querySelector('input')
-      if (!input) return
-      const delta = parseInt(btn.dataset.delta)
-      const max   = parseInt(input.max) || Infinity
-      const min   = parseInt(input.min) || 0
-      input.value = Math.min(max, Math.max(min, (parseInt(input.value) || 0) + delta))
-    })
+    _logCharWarned = false   // reset the character/settings mismatch warning
     // Live-update the scale descriptions as sliders move; mark as touched on first interaction
     const balEl = document.getElementById('log-balance')
     const conEl = document.getElementById('log-conf')
@@ -1595,6 +2256,7 @@ function renderOverlay() {
       }
       balEl.addEventListener('input', updateBal)
       balEl.addEventListener('click', updateBal)
+      if (balEl.classList.contains('touched')) updateBal()  // restore desc from draft
     }
     if (conEl) {
       const updateConf = () => {
@@ -1604,40 +2266,92 @@ function renderOverlay() {
       }
       conEl.addEventListener('input', updateConf)
       conEl.addEventListener('click', updateConf)
+      if (conEl.classList.contains('touched')) updateConf()  // restore desc from draft
     }
 
-    // Autocomplete for roster and assassination target inputs
-    const _logRoles = buildTeamRoles(gs.players, settings.characters)
-
-    function _getPlayerOptions() {
+    // ── Roster autocomplete ──────────────────────────────────────────────
+    // Name column: suggest every known player from memory (plus anything typed
+    // in other seats), not just the pre-entered ones. You can still type freely.
+    const _getNameOptions = () => {
       const known = new Set(players.getAll())
-      document.querySelectorAll('[data-roster-idx]').forEach(el => {
+      document.querySelectorAll('[data-seat-idx]').forEach(el => {
         const v = el.value.trim(); if (v) known.add(v)
       })
       return [...known]
     }
-
-    function _getAssnTargetOptions() {
+    // Names currently entered in the roster (for first-leader suggestions).
+    const _getEnteredNames = () => {
       const names = []
-      _logRoles.good.forEach((role, i) => {
-        if (role === 'Merlin') return
-        const inp = document.querySelector(`[data-roster-idx="${i}"]`)
-        const name = inp?.value?.trim()
-        if (name) names.push(name)
+      document.querySelectorAll('[data-seat-idx]').forEach(el => {
+        const v = el.value.trim(); if (v) names.push(v)
       })
       return names
     }
-
-    document.querySelectorAll('[data-roster-idx]').forEach(input => {
-      attachLogAutocomplete(input, _getPlayerOptions)
-      input.addEventListener('blur', () => {
-        const name = input.value.trim()
-        if (name) players.findOrCreate(name)
+    // Assassination target: good, non-Merlin players; falls back to all names.
+    const _getAssnTargetOptions = () => {
+      const names = []
+      document.querySelectorAll('[data-char-idx]').forEach(el => {
+        const role = el.value.trim()
+        if (role && logTeamForRole(role) === 'good' && role.toLowerCase() !== 'merlin') {
+          const nm = document.querySelector(`[data-seat-idx="${el.dataset.charIdx}"]`)?.value.trim()
+          if (nm) names.push(nm)
+        }
       })
+      return names.length ? names : _getEnteredNames()
+    }
+
+    // Auto-open chain over BOTH columns, row-major (name then character per row).
+    // First time the log appears for a game it opens the first unfilled cell and
+    // advances on each pick, to speed up logging; clicking outside a dropdown stops it.
+    const cells = []  // flat order: name0, char0, name1, char1, …
+    for (let i = 0; i < gs.players; i++) {
+      cells.push(document.querySelector(`[data-seat-idx="${i}"]`))
+      cells.push(document.querySelector(`[data-char-idx="${i}"]`))
+    }
+    const handles = new Map()
+    let   chainActive = !logChainDone
+
+    const onOutside = e => { if (!e.target.closest('.log-ac-item')) endChain() }
+    function endChain() {
+      chainActive = false
+      document.removeEventListener('mousedown', onOutside, true)
+    }
+    function advanceChain(fromPos) {
+      if (!chainActive) return
+      for (let p = fromPos; p < cells.length; p++) {
+        if (cells[p] && !cells[p].value.trim()) { handles.get(cells[p]).openAll(); return }
+      }
+      endChain()
+    }
+
+    // Enter (with the menu closed) tabs to the next field, or submits if last.
+    const logAdvance = input => () => { if (!focusNextLogField(input)) _submitLog() }
+
+    cells.forEach((cell, pos) => {
+      if (!cell) return
+      const isName = cell.hasAttribute('data-seat-idx')
+      const h = attachLogAutocomplete(cell, isName ? _getNameOptions : logCharOptions,
+        () => advanceChain(pos + 1), logAdvance(cell))
+      handles.set(cell, h)
+      if (isName) {
+        cell.addEventListener('blur', () => {
+          const name = cell.value.trim()
+          if (name) players.findOrCreate(name)
+        })
+      }
     })
 
+    if (!logChainDone) {
+      logChainDone = true
+      document.addEventListener('mousedown', onOutside, true)
+      setTimeout(() => advanceChain(0), 0)  // open the first unfilled cell (left-first)
+    }
+
     const assnTargetEl = document.getElementById('log-assn-target')
-    if (assnTargetEl) attachLogAutocomplete(assnTargetEl, _getAssnTargetOptions)
+    if (assnTargetEl) attachLogAutocomplete(assnTargetEl, _getAssnTargetOptions, null, logAdvance(assnTargetEl))
+
+    const firstLeaderEl = document.getElementById('log-first-leader')
+    if (firstLeaderEl) attachLogAutocomplete(firstLeaderEl, _getEnteredNames, null, logAdvance(firstLeaderEl))
 
     hint.textContent = '[ESC] back'
 
@@ -1822,6 +2536,10 @@ function renderCharPanel() {
   _charPanelFingerprint = fp
   _prevPanelOpen        = gs.panelOpen
 
+  // Let viewport-fixed overlays (scroll quote, win reveal, death card) slide
+  // along with the center column when the panel expands.
+  document.body.classList.toggle('panel-open', gs.panelOpen)
+
   if (contentChanged) {
     panel.className = ''  // clear before rebuild; expanded added after if needed
 
@@ -1942,6 +2660,8 @@ function renderPhaseStatus() {
 
 function renderHint() {
   const el = document.getElementById('hint')
+  // Assassination guide drops to the low win-hint spot; game hints stay in flow.
+  el.classList.toggle('hint-bottom', gs.phase === 'assassination')
   if (gs.phase === 'game') {
     if (gs.voting) {
       el.innerHTML =
@@ -1962,42 +2682,28 @@ function renderHint() {
 
 function renderModal() {
   const modal = document.getElementById('game-modal')
-  const box   = document.getElementById('gm-box')
   const death = document.getElementById('death-overlay')
+  const bats  = document.getElementById('bat-swarm')
 
-  // Assassination path: the "MERLIN DIED" card (driven by playMerlinDeath)
-  // is the whole win screen — no modal.
-  if (gs.phase === 'win' && gs.merlin === 'died') {
-    modal.classList.add('hidden')
-    return
-  }
-  // Any other screen: ensure a lingering death card is cleared.
-  if (death) death.classList.add('hidden')
+  // No win uses the old modal anymore — every win screen is a full reveal:
+  //   assassination -> "MERLIN DIED" card (death-overlay);
+  //   good / three failed quests -> win reveal (bat-swarm overlay).
+  modal.classList.add('hidden')
 
   if (gs.phase === 'win') {
-    modal.classList.remove('hidden')
-    const evil   = gs.failCount >= 3
-    const time   = fmt(gs.totalSecs)
-    const reason = evil ? 'Three quests failed.' : 'Merlin remains hidden.'
-    const title  = evil ? 'Evil triumphs' : 'Goodness prevails'
-    box.className = `gm-box ${evil ? 'evil-win' : 'good-win'}`
-    box.innerHTML = `
-      <div class="gm-title" style="color:${evil ? 'var(--evil-txt)' : 'var(--good-txt)'}; font-family:'Franken',Georgia,serif">
-        ${title}
-      </div>
-      <div class="gm-rule" style="background:${evil ? 'var(--evil-edge)' : 'var(--good-edge)'}"></div>
-      <div class="gm-body" style="font-family:'Franken',Georgia,serif">${reason}</div>
-      <div class="gm-time">Game time: ${time}</div>
-      <div class="gm-hint">[ENTER] new game   [L] log</div>
-    `
+    // A reveal owns the screen; leave its overlay up, hide the other one.
+    if (gs.merlin === 'died') { if (bats) bats.classList.add('hidden') }
+    else                      { if (death) death.classList.add('hidden') }
   } else {
-    modal.classList.add('hidden')
+    if (death) death.classList.add('hidden')
+    if (bats)  bats.classList.add('hidden')
   }
 }
 
-// True once [ESC] has dismissed the death card to reveal the frozen screen.
-// A second [ESC] then quits, rather than re-fading.
+// True once [ESC] has dismissed the death card / win reveal to reveal the
+// frozen game screen underneath.
 let _merlinUnfaded = false
+let _winUnfaded    = false
 
 // Dark-Souls-style "MERLIN DIED" card. This IS the final screen on the
 // assassination path — it fades in and stays up until [ENTER] → log.
@@ -2036,34 +2742,115 @@ function playMerlinDeath() {
     { duration: 1800, delay: 3600, easing: 'ease-out', fill: 'both' })
 }
 
+// The shared win-reveal screen: EL verdict text fades in over a faded
+// background, with the quests pushed down into the lower area. Evil (three
+// failed quests) additionally erupts a bat swarm; good just brings the text in.
+// The MERLIN DIED card is separate. team = 'evil' | 'good'.
+function playWinReveal(team) {
+  const overlay = document.getElementById('bat-swarm')
+  const wash    = document.getElementById('bat-wash')
+  const layer   = document.getElementById('bat-layer')
+  const title   = document.querySelector('#bat-reveal .bat-title')
+  const hint    = document.getElementById('bat-hint')
+  if (!overlay) return
+
+  const EASE        = 'cubic-bezier(.22,.61,.36,1)'
+  const FLIGHT_EASE = 'cubic-bezier(.45,.05,.55,.95)'
+  const rand = (a, b) => a + Math.random() * (b - a)
+  const N = 250, pace = 1.8
+  const bats = team === 'evil'
+
+  _winUnfaded = false
+  ;[overlay, wash, title, hint].forEach(el => el.getAnimations().forEach(a => a.cancel()))
+  overlay.classList.remove('hidden', 'unfaded', 'evil', 'good')
+  overlay.classList.add(team)
+  title.innerHTML = bats ? 'Evil&nbsp;triumphs!' : 'Goodness&nbsp;prevails!'
+  hint.style.opacity = ''
+  hint.innerHTML = '[ENTER] Continue&nbsp;&nbsp;&nbsp;&nbsp;[ESC] Return'
+  layer.innerHTML = ''
+  document.getElementById('timer-fill').style.animationPlayState = 'paused'
+
+  wash.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 900, easing: 'ease-out', fill: 'both' })
+
+  if (bats) buildBatSwarm(layer, EASE, FLIGHT_EASE, rand, N, pace)
+
+  // verdict text now starts with the bats (delay 0) and animates longer — it
+  // was delayed 1000ms with a 1500ms grow, so a 2500ms grow finishes at the
+  // same moment. Then the hint.
+  const titleEnd   = 2500
+  const startDelay = 1000
+  title.animate(
+    [{ opacity: 0, transform: 'scale(0.25)', filter: 'blur(6px)' },
+     { opacity: 1, transform: 'scale(1)',    filter: 'blur(0px)' }],
+    { duration: titleEnd, delay: startDelay, easing: EASE, fill: 'both' })
+  hint.animate([{ opacity: 0 }, { opacity: 1 }],
+    { duration: 1200, delay: startDelay + titleEnd - 300, easing: 'ease-out', fill: 'both' })
+}
+
+function buildBatSwarm(layer, EASE, FLIGHT_EASE, rand, N, pace) {
+  const R = Math.max(window.innerWidth, window.innerHeight) * 0.72
+  const frag = document.createDocumentFragment()
+  const flights = []
+  const tpl = document.createElement('div')
+  tpl.className = 'bat'
+  tpl.innerHTML = '<svg class="bat-svg" viewBox="0 0 800 600"><use href="#batsym"/></svg>'
+
+  for (let i = 0; i < N; i++) {
+    const bat = tpl.cloneNode(true)
+    bat.querySelector('.bat-svg').style.setProperty('--flap', rand(0.20, 0.25).toFixed(3) + 's')
+    frag.appendChild(bat)
+
+    const scale = rand(0.35, 1.15)
+    const angle = rand(0, Math.PI * 2)
+    const dist  = R * rand(0.85, 1.25)
+    const dx = Math.cos(angle) * dist, dy = Math.sin(angle) * dist
+    const tilt = rand(-20, 20)
+    const bow  = rand(-0.22, 0.22)
+    const mx = dx * 0.5 - Math.sin(angle) * dist * bow
+    const my = dy * 0.5 + Math.cos(angle) * dist * bow
+    const base = 'translate(-50%,-50%)'
+    flights.push([bat, [
+      { transform: `${base} translate(0,0) scale(${scale * 0.3}) rotate(${tilt}deg)`, opacity: 0 },
+      { opacity: 1, offset: 0.08 },
+      { transform: `translate(calc(-50% + ${mx}px), calc(-50% + ${my}px)) scale(${scale}) rotate(${tilt}deg)`, offset: 0.5 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${scale * 1.1}) rotate(${tilt}deg)`, opacity: 1 }
+    ], { duration: rand(1900, 2900) * pace, delay: rand(0, 400) * pace, easing: FLIGHT_EASE, fill: 'both' }])
+  }
+  layer.appendChild(frag)
+  flights.forEach(([el, kf, opt]) => el.animate(kf, opt))
+}
+
 function renderAssassinationArea() {
   const header    = document.getElementById('assassination-header')
   const voteArea  = document.getElementById('vote-area')
   const questArea = document.getElementById('quest-area')
-  // The frozen "MERLIN DIED" screen keeps the assassination layout underneath.
-  const keepAssnLayout = gs.phase === 'assassination' ||
-                         (gs.phase === 'win' && gs.merlin === 'died')
   const votes = document.getElementById('votes')
-  if (keepAssnLayout) {
-    // Keep vote-area visible so the bottom #hint bar can show the assassination
-    // guide, but hide the stale vote dots from the last quest.
-    voteArea.style.display = ''
-    votes.style.display = 'none'
+  // Quests shift down (and stale vote dots hide) during assassination AND on
+  // every win reveal — opening the upper 0.618 space for the verdict text.
+  const pushLayout = gs.phase === 'assassination' || gs.phase === 'win'
+  // The "Assassination" header belongs only to the assassination phase itself
+  // and the frozen MERLIN DIED screen.
+  const showAssnHeader = gs.phase === 'assassination' ||
+                         (gs.phase === 'win' && gs.merlin === 'died')
+
+  voteArea.style.display = ''
+  votes.style.display = pushLayout ? 'none' : ''
+  questArea.classList.toggle('assn-pushed', pushLayout)
+
+  if (showAssnHeader) {
     if (!header.classList.contains('visible')) {
       header.innerHTML = `
         <div class="assn-title">Assassination</div>
-        <div class="assn-rule"></div>
-        <div class="assn-body">Keep character cards hidden.<br>Assassin may reveal their card and choose a target.</div>
+        <div class="assn-body">
+          <div class="grad-line">Keep character cards hidden.</div>
+          <div class="grad-line">Assassin may reveal their card and choose a target.</div>
+        </div>
       `
       void header.offsetHeight  // force reflow so opacity/transform transitions start from initial values
       header.classList.add('visible')
-      questArea.classList.add('assn-pushed')
     }
   } else {
     header.classList.remove('visible')
-    questArea.classList.remove('assn-pushed')
-    voteArea.style.display = ''
-    votes.style.display = ''
   }
 }
 
@@ -2210,8 +2997,23 @@ document.addEventListener('keydown', e => {
       renderOverlay()
       return
     }
+    if (gs.phase === 'setup') {
+      e.preventDefault()
+      syncSeatsToPreGame()
+      preGame.seating.forEach(nm => { if (nm) players.findOrCreate(nm) })
+      gs.phase = setupReturnPhase
+      renderOverlay()
+      return
+    }
+    if (gs.phase === 'leader') {
+      e.preventDefault()
+      gs.phase = 'menu'
+      renderOverlay()
+      return
+    }
     if (gs.phase === 'log') {
       e.preventDefault()
+      captureLogDraft()   // preserve in-progress inputs for when the log reopens
       gs.phase = 'win'
       renderOverlay()
       renderModal()
@@ -2232,6 +3034,19 @@ document.addEventListener('keydown', e => {
       document.getElementById('hint').innerHTML = ''
       return
     }
+    // WIN REVEAL (good / three failed quests): Escape drops the wash + bats +
+    // title to reveal the frozen board with an [ENTER] Log guide.
+    if (gs.phase === 'win' && gs.merlin !== 'died' && !_winUnfaded) {
+      e.preventDefault()
+      _winUnfaded = true
+      const overlay = document.getElementById('bat-swarm')
+      const hint    = document.getElementById('bat-hint')
+      overlay.classList.add('unfaded')
+      hint.getAnimations().forEach(a => a.cancel())
+      hint.style.opacity = '1'
+      hint.innerHTML = '[ENTER] Log'
+      return
+    }
     return   // Escape no longer quits
   }
 
@@ -2246,7 +3061,7 @@ document.addEventListener('keydown', e => {
     const numMap = {'5':5,'6':6,'7':7,'8':8,'9':9,'0':10}
 
     if (settings.menuPage === 'main') {
-      const SELECTABLE = 7  // players, speed, length, characters, lotl, excalibur, start
+      const SELECTABLE = 8  // players, speed, length, characters, lotl, excalibur, setup, start
       if (e.key === 'ArrowUp') {
         e.preventDefault()
         settings.menuRow = (settings.menuRow - 1 + SELECTABLE) % SELECTABLE
@@ -2267,15 +3082,12 @@ document.addEventListener('keydown', e => {
           settings.menuRow  = 0
           renderOverlay()
         } else if (settings.menuRow === 6) {
-          // Start game
-          gs.phase = 'night'
-          sidebarAnimatePending = true   // slide in the night Target row
-          music.resetSession()
-          music.fadeToFolder('Night phase')
-          music.preload('Round 1', 'a')  // pre-buffer Round 1 for when night ends
-          gameLogs.init(settings)
-          logEvent('Night phase')
-          render()
+          // Open the add-names (seating) screen
+          setupReturnPhase = 'menu'
+          gs.phase = 'setup'
+          renderOverlay()
+        } else if (settings.menuRow === 7) {
+          startGameFromMenu()
         }
       }
 
@@ -2300,6 +3112,7 @@ document.addEventListener('keydown', e => {
       gs.nightSecs = gs.totalSecs
       gs.phase = 'game'
       sidebarAnimatePending = true  // slide in Quest 1 target row
+      sidebarPop = { type: 'night' }  // pop the night time that just froze
       gameLogs.recordNightEnd(gs.nightSecs)
 
       // Carry-over: redistribute night spare/overtime to all quest discussions proportionally
@@ -2316,6 +3129,18 @@ document.addEventListener('keydown', e => {
       music.playPreloaded('a', { fallbackFolder: 'Round 1' })
       logEvent('Quest 1 begins')
       render()
+    }
+
+  } else if (gs.phase === 'leader') {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      leaderContinue()
+    } else if ((e.key === ' ' || e.key === 'Spacebar') && !isTypingInField()) {
+      e.preventDefault()
+      leaderRandomize()
+    } else if ((e.key === 'p' || e.key === 'P') && !isTypingInField()) {
+      e.preventDefault()
+      leaderAddPlayers()
     }
 
   } else if (gs.phase === 'game') {
@@ -2345,6 +3170,7 @@ document.addEventListener('keydown', e => {
           }, 600)
         }
         logEvent(`Q${qi + 1} vote pass`)
+        sidebarPop = { type: 'freeze' }  // pop the row whose voting timer just froze
         renderSplitPanel()  // no render() follows here, so update panel explicitly
         // Card-phase music: snap to a fresh track from the same round folder
         music.fadeToFolder(`Round ${qi + 1}`, 400)
@@ -2382,7 +3208,9 @@ document.addEventListener('keydown', e => {
       gameLogs.save()
       music.playPreloaded('a', { fallbackFolder: 'Good songs' })
       logEvent('Merlin survived')
-      render()
+      sidebarPop = { type: 'assn' }  // pop the assassination time that just froze
+      render()               // drop the assassination header, keep quests pushed
+      playWinReveal('good')  // "Goodness prevails" fades in — no bats
     } else if (e.key === 'e' || e.key === 'E') {
       gs.assnSecs    = gs.totalSecs - gs.assnStart
       gs.assnEndTime = gs.totalSecs
@@ -2394,48 +3222,59 @@ document.addEventListener('keydown', e => {
       music.playPreloaded('b', { fallbackFolder: 'Evil songs' })
       logEvent('Merlin killed')
       // Deliberately skip render() so the assassination frame stays frozen
-      // underneath — the death card just fades in over it.
+      // underneath — the death card just fades in over it. Still refresh just the
+      // split panel so the assassination time freezes and pops (the death screen
+      // only slightly darkens it, which is fine).
+      sidebarPop = { type: 'assn' }
+      renderSplitPanel()
       playMerlinDeath()
     }
 
   } else if (gs.phase === 'win') {
-    // MERLIN DIED screen: [ENTER] (or L) → log, from faded or unfaded state.
-    // ([ESC] toggling the fade is handled in the top-level Escape block.)
-    if (gs.merlin === 'died') {
-      if (e.key === 'Enter' || e.key === 'l' || e.key === 'L') {
-        gs.phase = 'log'
-        render()
-      }
-    } else if (e.key === 'Enter') {
-      settings.menuRow  = 0
-      settings.menuPage = 'main'
-      gs = newGame(gs.players)
-      resetTimerBar()
-      music.fadeToFolder('Main menu')
-      render()
-    } else if (e.key === 'l' || e.key === 'L') {
+    // Every win screen is a reveal now (MERLIN DIED card / good / evil).
+    // [ENTER] or [L] → log; [ESC] unfade is handled in the top-level Escape block.
+    if (e.key === 'Enter' || e.key === 'l' || e.key === 'L') {
       gs.phase = 'log'
       render()
     }
-
   }
 })
 
 function _submitLog() {
+  // Hard block: the same player name entered in two seats.
+  if (hasDuplicateNames()) {
+    document.getElementById('log-dup-warning')?.classList.add('show')
+    document.getElementById('overlay-body')?.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  document.getElementById('log-dup-warning')?.classList.remove('show')
+  // Guard: if the entered characters don't match the settings line-up, warn once
+  // (surface the roster + red banner) before allowing an intentional mismatch through.
+  if (logCharMismatch() && !_logCharWarned) {
+    _logCharWarned = true
+    document.getElementById('log-char-warning')?.classList.add('show')
+    document.getElementById('overlay-body')?.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
   const roster = buildRosterFromDOM()
   if (roster.length) gameLogs.setRoster(roster)
   const balEl     = document.getElementById('log-balance')
   const conEl     = document.getElementById('log-conf')
   const targetEl  = document.getElementById('log-assn-target')
-  const newGoodEl = document.getElementById('log-new-good')
-  const newEvilEl = document.getElementById('log-new-evil')
   const notesEl   = document.getElementById('log-notes')
   if (balEl?.classList.contains('touched'))  gameLogs.setBalance(parseInt(balEl.value))
   if (conEl?.classList.contains('touched'))  gameLogs.setAssassinConfidence(parseInt(conEl.value))
   gameLogs.setAssassinationTarget(targetEl?.value?.trim() || '')
-  gameLogs.setNewPlayers(newGoodEl?.value, newEvilEl?.value)
+  // Seating + first leader (optional) — derives the initial LotL token holder
+  syncSeatsToPreGame()
+  if (preGame.seating.some(Boolean)) gameLogs.setSeating(preGame.seating.slice(0, gs.players))
+  const flText = document.getElementById('log-first-leader')?.value?.trim()
+  if (flText) gameLogs.setFirstLeader(/^\d+$/.test(flText) ? Number(flText) : flText)
   gameLogs.setNotes(notesEl?.value?.trim() || '')
   gameLogs.save()
+  logDraft = null              // game logged — discard the in-progress draft
+  logChainDone = false         // re-arm the character auto-open chain for next game
+  preGame.firstLeader = null   // re-roll next game; seating persists for the table
   settings.menuRow  = 0
   settings.menuPage = 'main'
   gs = newGame(gs.players)
@@ -2480,6 +3319,7 @@ function resolveQuest(result) {
   gs.voteCount = 0
   gs.voting = true
   sidebarAnimatePending = true
+  sidebarPop = { type: 'resolve', index: i }  // pop the row that just flipped red/blue
 
   logEvent(`Q${i + 1} ${result}`)
 
@@ -2498,7 +3338,8 @@ function resolveQuest(result) {
     gameLogs.save()
     music.playPreloaded('b', { fallbackFolder: 'Evil songs' })
     logEvent('Evil wins')
-    render()
+    render()             // show the resolved 3rd fail + push the quests down
+    playWinReveal('evil') // bats erupt over the board → "Evil triumphs"
     return
   }
 

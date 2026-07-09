@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bat swarm — effect demo</title>
+<style>
+  @font-face {
+    font-family: 'OptimusPrinceps';
+    src: url('fonts/OptimusPrincepsSemiBold.ttf') format('truetype');
+    font-display: swap;
+  }
+
+  :root {
+    --evil-red: #a82040;      /* matches the death-card red */
+  }
+
+  html, body {
+    margin: 0; height: 100%;
+    background: #08070a;
+    overflow: hidden;
+    font-family: 'OptimusPrinceps', Georgia, serif;
+  }
+
+  /* faux game board so you can see the swarm erupt over "something" */
+  #board {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    color: #1c1c24; font-size: 4vw; letter-spacing: .3em; user-select: none;
+  }
+
+  #stage { position: fixed; inset: 0; overflow: hidden; }
+
+  /* dark wash that deepens as the bats erupt */
+  #wash {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, rgba(20,0,8,.35), rgba(0,0,0,.9));
+    opacity: 0;
+  }
+
+  /* ---- one bat ---- */
+  .bat {
+    position: absolute; left: 50%; top: 50%;
+    width: 64px; height: 32px;
+    will-change: transform, opacity;
+  }
+  .bat svg {
+    display: block; width: 100%; height: 100%;
+    transform-origin: center;
+    animation: flap var(--flap, .16s) infinite ease-in-out;
+  }
+  .bat path.wing, .bat .body, .bat .ear { fill: #05040a; }
+  .bat .eye { fill: #ff2436; }
+  #stage.no-eyes .bat .eye { display: none; }
+
+  /* wing-flap = horizontal squash of the whole silhouette */
+  @keyframes flap {
+    0%, 100% { transform: scaleX(1); }
+    50%      { transform: scaleX(.30); }
+  }
+
+  /* ---- the reveal ---- */
+  #reveal {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    text-align: center; pointer-events: none;
+  }
+  #reveal .title {
+    font-size: clamp(2.4rem, 9vw, 8rem);
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--evil-red);
+    text-shadow: 0 0 26px rgba(168,32,64,.45), 0 0 6px rgba(0,0,0,.9);
+    opacity: 0;
+    transform: scale(1.15);
+    filter: blur(6px);
+  }
+
+  /* ---- controls (not part of the effect) ---- */
+  #controls {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 16px; align-items: center;
+    font-family: system-ui, sans-serif; color: #999; font-size: 13px;
+  }
+  #controls button {
+    font: inherit; padding: 8px 16px; border-radius: 8px;
+    border: 1px solid #333; background: #16161a; color: #ddd; cursor: pointer;
+  }
+  #controls button:hover { background: #202027; }
+  #controls label { display: flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+  <div id="board">GAME&nbsp;BOARD</div>
+
+  <div id="stage">
+    <div id="wash"></div>
+    <div id="swarm"></div>
+    <div id="reveal"><div class="title">Evil&nbsp;wins</div></div>
+  </div>
+
+  <div id="controls">
+    <button id="replay">▶ Replay</button>
+    <label>Bats <input id="count" type="range" min="12" max="80" value="44"><span id="countVal">44</span></label>
+    <label><input id="eyes" type="checkbox" checked> red eyes</label>
+  </div>
+
+<script>
+  const stage  = document.getElementById('stage');
+  const swarm  = document.getElementById('swarm');
+  const wash   = document.getElementById('wash');
+  const title  = document.querySelector('#reveal .title');
+  const EASE   = 'cubic-bezier(.22,.61,.36,1)';
+
+  // A single bat silhouette: symmetric membrane wings, small body, ears, eyes.
+  // Centered viewBox so scaleX flapping and rotation pivot on the body.
+  const BAT_SVG = `
+    <svg viewBox="-50 -25 100 50" xmlns="http://www.w3.org/2000/svg">
+      <path class="wing" d="M0,-2 C -10,-12 -22,-12 -30,-6 C -26,-4 -24,-2 -26,2
+        C -34,0 -42,4 -48,12 C -40,7 -32,8 -24,7 C -18,10 -10,8 0,3 Z"/>
+      <path class="wing" d="M0,-2 C 10,-12 22,-12 30,-6 C 26,-4 24,-2 26,2
+        C 34,0 42,4 48,12 C 40,7 32,8 24,7 C 18,10 10,8 0,3 Z"/>
+      <path class="ear" d="M-3,-6 L-4,-13 L-1,-7 Z"/>
+      <path class="ear" d="M3,-6 L4,-13 L1,-7 Z"/>
+      <ellipse class="body" cx="0" cy="0" rx="4.2" ry="7.5"/>
+      <circle class="eye" cx="-2" cy="-3" r="1.15"/>
+      <circle class="eye" cx="2"  cy="-3" r="1.15"/>
+    </svg>`;
+
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  function play() {
+    const n = +document.getElementById('count').value;
+    swarm.innerHTML = '';
+    stage.classList.toggle('no-eyes', !document.getElementById('eyes').checked);
+
+    // screen darkens as they erupt
+    wash.getAnimations().forEach(a => a.cancel());
+    wash.animate([{ opacity: 0 }, { opacity: 1 }],
+      { duration: 900, easing: 'ease-out', fill: 'both' });
+
+    const R = Math.max(innerWidth, innerHeight) * 0.72;   // exit radius
+
+    for (let i = 0; i < n; i++) {
+      const bat = document.createElement('div');
+      bat.className = 'bat';
+      bat.innerHTML = BAT_SVG;
+
+      const scale = rand(0.35, 1.25);
+      bat.style.setProperty('--flap', rand(0.10, 0.20).toFixed(3) + 's');
+
+      const angle = rand(0, Math.PI * 2);
+      const dist  = R * rand(0.85, 1.25);
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist;
+      const rot = (angle * 180 / Math.PI) + rand(-25, 25);
+
+      // slight perpendicular bow → curved, organic flight
+      const bow = rand(-0.25, 0.25);
+      const mx = dx * 0.5 - Math.sin(angle) * dist * bow;
+      const my = dy * 0.5 + Math.cos(angle) * dist * bow;
+
+      const base = 'translate(-50%,-50%)';
+      bat.animate([
+        { transform: `${base} translate(0,0) scale(${scale * 0.3}) rotate(${rot}deg)`, opacity: 0 },
+        { opacity: 1, offset: 0.08 },
+        { transform: `translate(calc(-50% + ${mx}px), calc(-50% + ${my}px)) scale(${scale}) rotate(${rot}deg)`, offset: 0.5 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(${scale * 1.1}) rotate(${rot}deg)`, opacity: 1 }
+      ], {
+        duration: rand(1500, 2400),
+        delay: rand(0, 450),
+        easing: EASE,
+        fill: 'both'
+      });
+
+      swarm.appendChild(bat);
+    }
+
+    // the reveal resolves as the swarm thins out
+    title.getAnimations().forEach(a => a.cancel());
+    title.animate(
+      [{ opacity: 0, transform: 'scale(1.15)', filter: 'blur(6px)' },
+       { opacity: 1, transform: 'scale(1)',    filter: 'blur(0px)' }],
+      { duration: 1400, delay: 900, easing: EASE, fill: 'both' });
+  }
+
+  document.getElementById('replay').addEventListener('click', play);
+  document.getElementById('count').addEventListener('input', e =>
+    document.getElementById('countVal').textContent = e.target.value);
+  document.getElementById('eyes').addEventListener('change', play);
+  window.addEventListener('load', () => setTimeout(play, 400));
+</script>
+</body>
+</html>

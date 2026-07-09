@@ -10,6 +10,7 @@
     @font-face { font-family: 'Cormorant Garamond'; src: url('fonts/CormorantGaramond-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; }
     @font-face { font-family: 'Cinzel Decorative';  src: url('fonts/CinzelDecorative-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; }
     @font-face { font-family: 'OptimusPrinceps';    src: url('fonts/OptimusPrincepsSemiBold.ttf') format('truetype'); font-weight: 400; font-style: normal; }
+    @font-face { font-family: 'AnglicanText';       src: url('fonts/AnglicanText.ttf'); }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -30,8 +31,7 @@
       --dim:         #5e4818;   /* secondary / muted text */
 
       /* ── Sidebar text palette ─────────────────────────────────────────────── */
-      --sb-val:      rgba(255,255,255,0.62);  /* sidebar primary value text */
-      --sb-val2:     #b89a50;                 /* sidebar secondary value text */
+      --muted-gold:  #b89a50;                 /* muted gold — secondary value / accent text */
       --sb-key:      #906018;                 /* sidebar row key labels */
       --topbar-border: #5e4818;               /* timer bar top & bottom border */
       --side-border:   rgba(255,255,255,0.05);/* sidebar left/right border — 2px */
@@ -148,13 +148,36 @@
       opacity: 1;
     }
 
-    /* Total time — in left split panel above quest timestamps */
-    #total-time {
+    /* Total-time header — stacked block at the top of the left split panel:
+       label, big elapsed clock, and the game's target duration beneath. */
+    #sp-total-header {
+      padding: 4px 18px 14px;
+      text-align: center;
+    }
+    #sp-total-header .sp-tt-label {
       font-family: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
       font-size: 16px;
-      letter-spacing: 2px;
-      color: var(--cream);
+      letter-spacing: 3px;
+      color: var(--sb-key);
+      margin-bottom: 8px;
     }
+    #total-time {
+      font-family: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
+      font-size: 36px;
+      letter-spacing: 1px;
+      line-height: 1;
+      color: var(--cream);
+      font-variant-numeric: tabular-nums;
+    }
+    #sp-total-header .sp-tt-of {
+      font-family: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
+      font-size: 14px;
+      letter-spacing: 1px;
+      color: var(--sb-key);
+      margin-top: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    #sp-total-header .sp-tt-of b { color: var(--muted-gold); font-weight: 400; }
 
     /* Phase status — large centred text just below the timer bar */
     #phase-status {
@@ -176,6 +199,17 @@
       background-clip: text;
       -webkit-text-fill-color: transparent;
     }
+    /* Per-line body variant: same cream→gold gradient as .grad-title, but with a
+       tight line-height so each line's glyphs fill the box and show the full
+       range (like the single-line titles) instead of washing out mid-gradient. */
+    .grad-line {
+      line-height: 1.15;
+      background-image: linear-gradient(180deg, var(--cream), var(--accent));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .grad-line + .grad-line { margin-top: 0.45em; }
 
     /* ─── MAIN CONTENT ───────────────────────────────────── */
 
@@ -218,7 +252,7 @@
     }
 
     #quest-area.assn-pushed #quests {
-      transform: translateY(220px);
+      transform: translateY(132px);   /* ~60% of the former 220px push */
     }
 
     /* Arc positioning wrapper — transform lives here, not on the animated .q-wrap */
@@ -473,9 +507,15 @@
       flex-direction: column;
       gap: 4px;
     }
+    /* During assassination the guide drops to the same low spot as the win-reveal
+       hint (matches #bat-hint), instead of sitting under the pushed-down quests. */
+    #hint.hint-bottom {
+      position: fixed; bottom: 22%; left: 50%; transform: translateX(-50%);
+      transition: left 0.35s ease;
+    }
     .hint-action {
       font-family: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
-      color: var(--sb-val2);
+      color: var(--muted-gold);
       font-size: 12px;
       margin-bottom: 4px;
     }
@@ -579,16 +619,22 @@
 
     .sp-time {
       font-family: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
-      font-size: 15px;
+      font-size: 17px;
       white-space: nowrap;
-      color: var(--sb-val);
+      color: var(--cream);   /* base value color; rows override per-state (accent/dim) */
+      transform: translateX(-5px);   /* nudge timers ~0.5ch left, off the right edge */
     }
 
     .sp-split {
       font-family: 'JetBrains Mono', 'SF Mono', Consolas, 'Courier New', monospace;
-      font-size: 12px;
+      font-size: 15px;
       color: var(--dim);
+      transform: translateX(-5px);   /* keep split aligned with its time value */
     }
+
+    /* Frozen NIGHT row sits above the quest splits — give it 1.5x the normal
+       inter-row gap (rows are 7px+7px padding = 14px; +7px margin → 21px). */
+    .sp-night-frozen { margin-bottom: 7px; }
 
     .sp-sep {
       height: 1px;
@@ -596,29 +642,26 @@
       margin: 6px 0 8px;
     }
 
-    /* Dagger icon — span masked with dagger.png, filled with currentColor so it
-       automatically matches whatever text color the parent label uses */
-    .sp-dagger {
-      display: inline-block;
-      height: 30px;
-      width: 30px;
-      vertical-align: -10px;
-      background-color: currentColor;
-      -webkit-mask-image: url('images/dagger.png');
-      mask-image: url('images/dagger.png');
-      -webkit-mask-size: contain;
-      mask-size: contain;
-      -webkit-mask-repeat: no-repeat;
-      mask-repeat: no-repeat;
-      -webkit-mask-position: center;
-      mask-position: center;
+    /* Row-label glyphs — Assn → dagger, Nite → moon. Both are inline SVG that
+       fill with currentColor, so they inherit the row label's color (gold when
+       active, dim when future). */
+    .sp-dagger { display: inline-block; line-height: 0; vertical-align: middle; }
+    .sp-dagger svg { display: block; fill: currentColor; }
+    /* Crescent moon — inline SVG (no asset); svg inherits currentColor via fill */
+    .sp-moon { display: inline-block; line-height: 0; vertical-align: middle; }
+    .sp-moon svg { display: block; fill: currentColor; }
+
+    /* Q-label font — OptimusPrinceps on the Q1–Q5 rows */
+    .sp-q-label {
+      font-family: 'OptimusPrinceps', Georgia, serif;
+      font-size: 19px;
+      letter-spacing: 1px;
     }
 
-    /* Q-label font — Franken only on the Q1–Q5 rows */
-    .sp-q-label {
-      font-family: 'Franken', Georgia, serif;
-      font-size: 18px;
-      letter-spacing: 0.5px;
+    /* OptimusPrinceps row labels — Nite / Assn (numbers & target: stay mono) */
+    .sp-opt-label {
+      font-family: 'OptimusPrinceps', Georgia, serif;
+      letter-spacing: 1px;
     }
 
     .sp-log {
@@ -801,7 +844,16 @@
       color: #7a5a20;
       letter-spacing: 1px;
       border-radius: 2px;
+      cursor: pointer;
     }
+    .menu-row.disabled { cursor: default; }
+    /* Hover mirrors keyboard focus, so mouse users get the same affordance. */
+    .menu-row:not(.disabled):not(.info):hover {
+      color: var(--cream);
+      background: rgba(184, 124, 40, 0.08);
+    }
+    .menu-row:not(.disabled):not(.info):hover .menu-row-value { color: var(--accent-dim); }
+    .menu-row:not(.disabled):not(.info):hover .menu-val-on { color: var(--accent-brt); }
 
     .menu-row-label {
       font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
@@ -866,6 +918,23 @@
     }
     #overlay-body.log-active::-webkit-scrollbar { display: none; }
 
+    /* Add-names screen: vertically centered but nudged up (extra bottom padding),
+       top-aligns if it overflows (safe). Scaled up a touch. */
+    #overlay-body.setup-centered { justify-content: safe center; padding: 0 0 96px; }
+    #overlay-body.setup-centered .log-header      { font-size: 56px; }
+    #overlay-body.setup-centered .log-rule        { width: 420px; margin: 18px auto 24px; }
+    #overlay-body.setup-centered .log-roster      { width: 520px; }
+    #overlay-body.setup-centered .log-roster-row  { gap: 16px; margin-bottom: 8px; }
+    #overlay-body.setup-centered .log-seat-num    { font-size: 21px; width: 30px; }
+    #overlay-body.setup-centered .log-input-wrap  { max-width: none; }
+    #overlay-body.setup-centered .log-player-input{ font-size: 23px; padding: 9px 30px 9px 13px; }
+    #overlay-body.setup-centered .log-ac-btn      { font-size: 19px; right: 10px; }
+    #overlay-body.setup-centered .log-submit-btn  { width: 520px; font-size: 15px; padding: 14px 0; }
+    #overlay-body.setup-centered #setup-dup-warning { width: 520px; }
+
+    /* Bigger dropdown items for the Add-names field. */
+    .log-autocomplete.ac-big .log-ac-item { font-size: 21px; padding: 9px 16px; }
+
     @keyframes ov-body-in {
       from { opacity: 0; }
       to   { opacity: 1; }
@@ -908,6 +977,23 @@
       40%  { transform: scale(1.5); }
       100% { transform: scale(1);   }
     }
+    /* Sidebar "just interacted" pop — mirrors the quest circles' tweens (scale-up +
+       brightness flash, same ease-out). Applied to the single element that was just
+       interacted with: a frozen timer, or a Q-label flipping to its result color.
+       Duration is driven by --sp-pop-dur so each pop can match its partner circle:
+       0.6s for a freeze (like .vote-locking), 0.85s for a quest outcome (like .locking).
+       sp-pop is for plain elements; sp-pop-t bakes in the -5px timer nudge so the
+       time/split values don't jump sideways during the animation. */
+    @keyframes sp-pop {
+      0%   { transform: scale(1);    filter: brightness(1);   }
+      30%  { transform: scale(1.15); filter: brightness(1.5); }
+      100% { transform: scale(1);    filter: brightness(1);   }
+    }
+    @keyframes sp-pop-t {
+      0%   { transform: translateX(-5px) scale(1);    filter: brightness(1);   }
+      30%  { transform: translateX(-5px) scale(1.15); filter: brightness(1.5); }
+      100% { transform: translateX(-5px) scale(1);    filter: brightness(1);   }
+    }
     @keyframes bar-warning-blink {
       0%, 100% { box-shadow: none; }
       50%       { box-shadow: 0 3px 14px rgba(224, 168, 64, 0.75), 0 -3px 14px rgba(224, 168, 64, 0.75); }
@@ -925,6 +1011,8 @@
     .q-wrap.vote-locking { animation: vote-lock-scale 0.6s  ease-out forwards; }
     .arc.vote-locking    { animation: vote-lock-flash  0.6s  ease-out forwards; }
     .v-dot.marking       { animation: dot-mark         0.35s ease-out; }
+    .sp-pop              { animation: sp-pop   var(--sp-pop-dur, 0.6s) ease-out; }
+    .sp-pop-t            { animation: sp-pop-t var(--sp-pop-dur, 0.6s) ease-out; }
 
     #timer-bar.warning  { animation: bar-warning-blink 1s   ease-in-out infinite; }
     #timer-bar.overtime { animation: bar-overtime-glow 0.8s ease-in-out infinite; }
@@ -953,7 +1041,7 @@
 
     #assassination-header {
       position: absolute;
-      top: 8px;
+      top: 40px;   /* relative to #center-col — ~150px higher than its old spot in #quest-area */
       left: 0; right: 0;
       display: flex;
       flex-direction: column;
@@ -994,7 +1082,8 @@
 
     .assn-body {
       font-family: 'Franken', Georgia, serif;
-      font-size: 30px;
+      font-size: 52px;
+      margin-top: 40px;
       color: var(--cream);
       line-height: 1.5;
       text-align: center;
@@ -1002,7 +1091,7 @@
 
 
     .ov-title {
-      font-family: 'EnchantedLand', Georgia, serif;
+      font-family: 'Franken', Georgia, serif;   /* default title font */
       font-size: 180px;
       color: var(--accent);
       letter-spacing: 3px;
@@ -1012,13 +1101,13 @@
     .ov-rule {
       width: 520px;
       height: 2px;
-      background: linear-gradient(to right, rgba(184,124,40,0), rgba(184,124,40,0.7) 20%, rgba(184,124,40,0.7) 80%, rgba(184,124,40,0));
+      background: linear-gradient(to right, rgba(220,200,120,0), rgba(220,200,120,0.7) 20%, rgba(220,200,120,0.7) 80%, rgba(220,200,120,0));
       margin: 48px 0;
     }
 
     .ov-body {
       font-family: 'Franken', Georgia, serif;
-      font-size: 52px;
+      font-size: 60px;
       color: var(--cream);
       text-align: center;
       line-height: 1.8;
@@ -1035,7 +1124,7 @@
       left: 0;
       right: 0;
       justify-content: center;
-      transition: opacity 0.4s ease;
+      transition: opacity 0.4s ease, transform 0.35s ease;
       filter: drop-shadow(0px 0px 14px rgba(0,0,0,0.85));
       z-index: 2;
     }
@@ -1062,6 +1151,7 @@
       background: #feeec7;
       height: 100px;
       min-width: 300px;
+      flex-shrink: 0;   /* never squish below its set width — text SVG is fixed-width */
       position: relative;
       top: 0px;
       z-index: 3;
@@ -1194,6 +1284,7 @@
     .death-text {
       position: relative;
       top: -5vh;                   /* nudge up from dead-center */
+      transition: left 0.35s ease;
       text-align: center;
       font-family: 'OptimusPrinceps', Georgia, serif;
       color: #a82040;              /* --evil-edge (fail ring / evil-line color) */
@@ -1211,6 +1302,7 @@
       position: absolute;
       bottom: 22%; left: 50%;
       transform: translateX(-50%);
+      transition: left 0.35s ease;
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
       letter-spacing: 1px;
@@ -1223,6 +1315,57 @@
     #death-overlay.unfaded { background: transparent; }
     #death-overlay.unfaded .death-text { display: none; }
 
+    /* ─── BAT SWARM (evil win by 3 failed quests) ────────── */
+
+    #bat-swarm { position: fixed; inset: 0; z-index: 30; overflow: hidden; pointer-events: none; }
+    #bat-swarm.hidden { display: none; }
+    #bat-wash { position: absolute; inset: 0; opacity: 0;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,.85), rgba(0,0,0,.96)); }
+    #bat-swarm.evil #bat-wash { background: radial-gradient(ellipse at center, rgba(20,0,8,.5),  rgba(0,0,0,.96)); }
+    #bat-swarm.good #bat-wash { background: radial-gradient(ellipse at center, rgba(0,10,30,.5), rgba(0,0,0,.96)); }
+    #bat-layer { position: absolute; inset: 0; transition: transform 0.35s ease; }
+
+    .bat { position: absolute; left: 50%; top: calc(30% - 40px); width: 96px; height: 72px;  /* erupt from the verdict-text point */
+      will-change: transform, opacity; }
+    .bat-svg { display: block; width: 100%; height: 100%; transform-origin: center;
+      animation: bat-flap var(--flap, .22s) infinite ease-in-out; }
+    @keyframes bat-flap { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(.34); } }
+
+    /* verdict text is centered within the top 0.60 of the screen, so its center
+       sits at 0.30 from the top — lifted to match the reduced quest push. */
+    #bat-reveal { position: absolute; left: 0; right: 0; top: 0; height: 60%; padding-bottom: 80px;
+      display: grid; place-items: center; text-align: center; transition: transform 0.35s ease; }
+    .bat-title {
+      font-family: 'EnchantedLand', Georgia, serif;
+      font-size: clamp(4rem, 12vw, 11rem);
+      letter-spacing: .02em;
+      white-space: nowrap;
+      opacity: 0; transform: scale(1.15); filter: blur(6px);
+    }
+    #bat-swarm.evil .bat-title { color: #a82040;         text-shadow: 0 0 26px rgba(168,32,64,.45), 0 0 6px rgba(0,0,0,.9); }
+    #bat-swarm.good .bat-title { color: var(--good-txt); text-shadow: 0 0 26px rgba(44,88,200,.5),   0 0 6px rgba(0,0,0,.9); }
+    #bat-hint {
+      position: absolute; bottom: 22%; left: 50%; transform: translateX(-50%);
+      font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 1px;
+      color: var(--dim); opacity: 0; transition: left 0.35s ease;
+    }
+
+    /* [ESC]: drop the dark wash + bats, but keep the verdict text in place over the frozen board */
+    #bat-swarm.unfaded #bat-wash { background: transparent; }
+    #bat-swarm.unfaded #bat-layer { display: none; }
+
+    /* When the char panel expands, the center column's midpoint shifts ~100px left.
+       These viewport-fixed overlays aren't in that column, so shift them to match.
+       (Elements that already use translateX(-50%) are nudged via `left` instead so
+       their centering transform is preserved.) */
+    body.panel-open #scroll-quote,
+    body.panel-open #bat-reveal,
+    body.panel-open #bat-layer { transform: translateX(-100px); }
+    body.panel-open #bat-hint,
+    body.panel-open #hint.hint-bottom,
+    body.panel-open .death-hint { left: calc(50% - 100px); }
+    body.panel-open .death-text { left: -100px; }
+
     /* ─── QUIT PROMPT ([Q] anywhere) ─────────────────────── */
 
     #quit-modal {
@@ -1234,25 +1377,25 @@
     #quit-modal.hidden { display: none; }
 
     .quit-box {
-      padding: 44px 64px;
+      padding: 88px 128px;
       text-align: center;
-      border: 2px solid var(--accent-dim);
+      border: 3px solid var(--accent-dim);
       background: rgba(12, 10, 12, 0.95);
       backdrop-filter: blur(6px);
     }
     .quit-title {
       font-family: 'Franken', Georgia, serif;
-      font-size: 44px;
-      letter-spacing: 2px;
+      font-size: 84px;
+      letter-spacing: 3px;
       color: var(--cream);
-      margin-bottom: 26px;
+      margin-bottom: 50px;
     }
     .quit-hint {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 13px;
+      font-size: 25px;
       letter-spacing: 1px;
       color: var(--dim);
-      margin-top: 8px;
+      margin-top: 16px;
     }
 
     /* ─── LOG SCREEN ─────────────────────────────────────── */
@@ -1434,47 +1577,46 @@
     .log-select:focus { border-color: var(--accent-dim); }
     .log-select option { background: var(--bg1); }
 
-    .log-new-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    /* Two-column roster: seat number · name · character */
+    .log-seat-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 14px;
+      color: var(--dim);
+      width: 22px;
+      flex-shrink: 0;
+      text-align: right;
     }
+    .log-roster-chars { width: 500px; }
+    .log-roster-chars .log-input-wrap { max-width: none; }
 
-    .log-sub-label {
+    /* Red warning shown under the header on a character/settings mismatch */
+    .log-warning {
+      display: none;
+      width: 500px;              /* match the two-column roster so it aligns right */
+      color: var(--evil-txt);
       font-family: 'JetBrains Mono', monospace;
       font-size: 13px;
-      color: var(--cream);
-      width: 32px;
+      letter-spacing: 1px;
+      text-align: right;
+      margin: 0 0 0;             /* 10px higher than before */
     }
+    .log-warning.show { display: block; }
 
-    .log-num {
-      width: 56px;
-      background: transparent;
-      border: 1px solid var(--stone);
-      color: var(--cream);
-      font-family: inherit;
-      font-size: 15px;
-      padding: 5px 10px;
-      outline: none;
-      text-align: center;
+    /* Red "duplicate name" error, left-aligned under the name column
+       (past the 22px seat number + 12px gap). Widths match each roster. */
+    .name-warning {
+      display: none;
+      color: var(--evil-txt);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 1px;
+      text-align: left;
+      padding-left: 34px;
+      margin: 4px 0 8px;
     }
-    .log-num:focus { border-color: var(--accent-dim); }
-    .log-num::placeholder { color: var(--dim); }
-    .log-num::-webkit-inner-spin-button,
-    .log-num::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
-    .log-num-wrap { display: inline-flex; align-items: center; }
-    .log-num-btns { display: flex; flex-direction: column; margin-left: 5px; gap: 1px; }
-    .log-num-btn {
-      background: transparent;
-      border: none;
-      color: var(--cream);
-      font-size: 11px;
-      line-height: 1;
-      padding: 1px 0;
-      cursor: pointer;
-      opacity: 0.5;
-    }
-    .log-num-btn:hover { opacity: 1; color: var(--accent-brt); }
+    .name-warning.show { display: block; }
+    #log-dup-warning   { width: 500px; }   /* match the two-column roster */
+    #setup-dup-warning { width: 440px; }   /* match the single-column roster */
 
     .log-textarea {
       width: 100%;
@@ -1510,6 +1652,48 @@
     .log-submit-btn:active { background: var(--bg1); }
     .log-bottom-pad { height: 32px; }
 
+    /* ─── LEADER SCREEN (pre-night first-leader pick) ────────── */
+    /* Minimal settle when the shuffle locks in — a small, quick scale-down. */
+    @keyframes leader-settle {
+      0%   { transform: scale(1.07); }
+      100% { transform: scale(1); }
+    }
+    .leader-settle { animation: leader-settle 0.14s ease-out; }
+
+    .leader-title { font-size: 108px; letter-spacing: 4px; }
+    .leader-pick  { margin: 40px 0 8px; }
+
+    /* The randomized name/number — the focal element, deliberately huge. */
+    .leader-input-wrap { width: 620px; max-width: 620px; margin: 0 auto; }
+    .leader-value {
+      font-family: 'Franken', Georgia, serif;
+      font-size: 76px !important;
+      line-height: 1.15;
+      text-align: center;
+      padding: 18px 44px 18px 20px !important;
+      border-color: var(--stone);
+    }
+    .leader-value::placeholder { font-size: 76px; }
+    .leader-ac-btn { font-size: 30px; right: 14px; }
+
+    /* Running-timer cream while cycling, bright accent once locked in. No glow
+       (a text-shadow on an <input> clips to a rectangle). */
+    .leader-value.shuffling { color: var(--cream);      text-shadow: none; }
+    .leader-value.locked-in { color: var(--accent-brt); text-shadow: none; }
+
+    .leader-warning {
+      display: none;
+      color: var(--evil-txt);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 16px;
+      letter-spacing: 1px;
+      text-align: center;
+      margin-top: 20px;
+    }
+    .leader-warning.show { display: block; }
+    .leader-btns { margin-top: 34px; }
+    .leader-btns .log-submit-btn { margin-top: 12px; width: 620px; font-size: 15px; padding: 14px 0; }
+
     /* ─── LOG SCREEN AUTOCOMPLETE ───────────────────────────── */
 
     .log-autocomplete {
@@ -1517,7 +1701,7 @@
       background: var(--bg1);
       border: 1px solid var(--accent-dim);
       z-index: 100;
-      max-height: 180px;
+      max-height: 300px;         /* ~10 items before scrolling (was ~6) */
       overflow-y: auto;
       scrollbar-width: none;
     }
@@ -1610,6 +1794,7 @@
         <div class="ov-hint" id="overlay-hint"></div>
       </div>
     <div id="phase-status" class="grad-title"></div>
+    <div id="assassination-header"></div>
     <div id="quest-area">
       <div id="scroll-quote" class="quote-scroll-wrap hidden">
         <img src="images/left_scroll_100x40.png" class="scroll-img-left">
@@ -1620,12 +1805,11 @@
         <!-- SVG text lives outside the masked parchment so it renders above the scroll images -->
         <svg class="quote-text-svg" xmlns="http://www.w3.org/2000/svg">
           <defs><path id="quote-wave-path" d="M 0,58"/></defs>
-          <text font-family="Franken, Georgia, serif" font-size="44" fill="#181818">
+          <text font-family="AnglicanText, Georgia, serif" font-size="44" fill="#181818">
             <textPath id="quote-wave-tp" href="#quote-wave-path" startOffset="50%" text-anchor="middle"></textPath>
           </text>
         </svg>
       </div>
-      <div id="assassination-header"></div>
       <div id="quests">
         <!-- Quest wraps built by JS -->
       </div>
@@ -1657,6 +1841,16 @@
     Merlin&nbsp;died
   </div>
   <div class="death-hint" id="death-hint">[ENTER] Continue&nbsp;&nbsp;&nbsp;&nbsp;[ESC] Return</div>
+</div>
+
+<!-- Pre-baked bat silhouette (frame 95 of the Lottie, red eyes); every bat is a <use> of this -->
+<svg id="bat-symdefs" width="0" height="0" aria-hidden="true" style="position:absolute"><symbol id="batsym" viewBox="0 0 800 600"><g><g transform="matrix(1,-0.01,0.01,1,107.14,129.18)"><g transform="matrix(1,0,0,1,150.85,131.78)"><path fill="rgb(35,31,32)" d=" M132.77,38.89 C85.74,35.05 -8.11,-8.69 51.66,-131.53 C51.66,-131.53 -87.63,-100.91 -150.6,-0.72 C-150.6,-0.72 -68.41,-35.41 -41.55,3.45 C-14.69,42.32 -50.35,101.47 -55.95,107.9 C-55.95,107.9 -26.69,76.61 0.75,81.75 C28.18,86.9 30.21,131.53 30.21,131.53 C30.21,131.53 35.61,78.9 91.05,77.18 C91.05,77.18 150.6,87.47 150.6,87.47 C150.6,87.47 150.6,39.46 150.6,39.46 C150.6,39.46 137.21,39.25 132.77,38.89z"></path></g></g><g transform="matrix(1,0.01,-0.01,1,411.75,126.5)"><g transform="matrix(1,0,0,1,150.85,131.78)"><path fill="rgb(35,31,32)" d=" M-132.77,38.89 C-85.74,35.05 8.11,-8.69 -51.66,-131.53 C-51.66,-131.53 87.63,-100.91 150.6,-0.72 C150.6,-0.72 68.41,-35.41 41.55,3.45 C14.69,42.32 50.35,101.47 55.95,107.9 C55.95,107.9 26.69,76.61 -0.75,81.75 C-28.18,86.9 -30.21,131.53 -30.21,131.53 C-30.21,131.53 -35.61,78.9 -91.05,77.18 C-91.05,77.18 -150.6,87.47 -150.6,87.47 C-150.6,87.47 -150.6,39.46 -150.6,39.46 C-150.6,39.46 -137.21,39.25 -132.77,38.89z"></path></g></g><g transform="matrix(1,0,0,1,400.83,380.21)"><g transform="matrix(1,0,0,1,9.47,23.4)"><path fill="rgb(35,31,32)" d=" M1.19,23.15 C1.19,23.15 -9.22,-23.15 -9.22,-23.15 C-9.22,-23.15 9.22,-23.15 9.22,-23.15 C9.22,-23.15 1.19,23.15 1.19,23.15z"></path></g></g><g transform="matrix(1,0,0,1,351.98,285.73)"><g transform="matrix(1,0,0,1,57.12,58.8)"><path fill="rgb(35,31,32)" d=" M56.87,1.68 C56.87,34.94 28.93,58.55 0,58.55 C-23.79,58.55 -56.87,34.94 -56.87,1.68 C-56.87,-31.58 -33.26,-58.55 0,-58.55 C33.26,-58.55 56.87,-31.58 56.87,1.68z"></path></g><g transform="matrix(1,0,0,1,23.03,20.85)"><path fill="rgb(35,31,32)" d=" M-10.3,2.1 C-10.3,2.1 10.3,-2.1 10.3,-2.1"></path></g></g><g transform="matrix(1,0,0,1,352.85,238.13)"><g transform="matrix(1,0,0,1,28.13,31.6)"><path fill="rgb(35,31,32)" d=" M12.73,27.15 C12.73,27.15 27.88,-4.69 -1.7,-31.35 C-1.7,-31.35 -27.88,-16.17 -7.86,31.35 C-7.86,31.35 12.73,27.15 12.73,27.15z"></path></g></g><g transform="matrix(1,0,0,1,409.06,238.13)"><g transform="matrix(1,0,0,1,28.13,31.6)"><path fill="rgb(35,31,32)" d=" M-12.73,27.15 C-12.73,27.15 -27.88,-4.69 1.7,-31.35 C1.7,-31.35 27.88,-16.17 7.86,31.35 C7.86,31.35 -12.73,27.15 -12.73,27.15z"></path></g></g><g transform="matrix(1,0,0,1,364.47,295.73)"><g transform="matrix(1,0,0,1,17.83,16.11)"><path fill="rgb(255,35,54)" d=" M17.58,4.95 C17.58,4.95 -3.6,15.86 -17.58,-3.7 C-17.58,-3.7 1.15,-15.86 17.58,4.95z"></path></g></g><g transform="matrix(1,0,0,1,418.08,295.73)"><g transform="matrix(1,0,0,1,17.83,16.11)"><path fill="rgb(255,35,54)" d=" M-17.58,4.95 C-17.58,4.95 3.6,15.86 17.58,-3.7 C17.58,-3.7 -1.15,-15.86 -17.58,4.95z"></path></g></g></g></symbol></svg>
+
+<div id="bat-swarm" class="hidden">
+  <div id="bat-wash"></div>
+  <div id="bat-layer"></div>
+  <div id="bat-reveal"><div class="bat-title">Evil&nbsp;triumphs</div></div>
+  <div id="bat-hint">[ENTER] Continue&nbsp;&nbsp;&nbsp;&nbsp;[ESC] Return</div>
 </div>
 
 <div id="quit-modal" class="hidden">

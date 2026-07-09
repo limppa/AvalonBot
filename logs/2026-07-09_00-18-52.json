@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "date": "2026-07-09T00:18:52.540Z",
+  "settings": {
+    "players": 7,
+    "gameSpeed": "normal",
+    "targetTime": 45,
+    "characters": {
+      "merlin": true,
+      "assassin": true,
+      "percival": true,
+      "morgana": true,
+      "oberon": true,
+      "mordred": false
+    },
+    "abilities": {
+      "lotl": true,
+      "excalibur": false
+    }
+  },
+  "night": {
+    "seconds": 2
+  },
+  "quests": [
+    {
+      "questNumber": 1,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 23,
+      "cardSeconds": 0,
+      "endTimestamp": 25
+    },
+    {
+      "questNumber": 2,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 1,
+      "cardSeconds": 0,
+      "endTimestamp": 26
+    },
+    {
+      "questNumber": 3,
+      "failedVotes": 0,
+      "result": "fail",
+      "votingSeconds": 0,
+      "cardSeconds": 0,
+      "endTimestamp": 26
+    }
+  ],
+  "assassination": null,
+  "outcome": {
+    "winner": "evil",
+    "reason": "quests-failed",
+    "totalSeconds": 26
+  },
+  "optional": {
+    "balance": null,
+    "assassinConfidence": null,
+    "assassinationTarget": null,
+    "seating": [],
+    "firstLeader": null,
+    "lotlHolder": null,
+    "notes": ""
+  }
+}

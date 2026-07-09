@@ -14,7 +14,8 @@ function _ensureDir() {
 }
 
 // Called when the night phase begins (i.e. the game is started).
-function init(settings) {
+// preGame (optional): { seating: [names in clockwise order], firstLeader: name|seatNumber }
+function init(settings, preGame) {
   const now = new Date()
   _questFailedVotes = [0, 0, 0, 0, 0]
   _log = {
@@ -35,9 +36,18 @@ function init(settings) {
       balance:             null,  // -3 (evil-favored) → 0 → +3 (good-favored)
       assassinConfidence:  null,  // 1 (total guess) → 5 (certain); only when assassination happened
       assassinationTarget: null,  // good character targeted (if not Merlin)
-      newPlayers:          { good: null, evil: null },
+      seating:             [],    // player names in clockwise seat order (optional)
+      firstLeader:         null,  // name, or seat number (1..N) if no names entered
+      lotlHolder:          null,  // derived: player counter-clockwise of first leader
       notes:               '',
     },
+  }
+  if (preGame) {
+    _log.optional.seating     = Array.isArray(preGame.seating)
+      ? preGame.seating.map(n => (n == null ? '' : String(n).trim())) : []
+    _log.optional.firstLeader = (preGame.firstLeader === '' || preGame.firstLeader == null)
+      ? null : preGame.firstLeader
+    _deriveLotlHolder()
   }
   const ts = now.toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
   _logPath = path.join(LOG_DIR, `${ts}.json`)
@@ -97,12 +107,38 @@ function setAssassinConfidence(value) {
   _log.optional.assassinConfidence = value
 }
 
-function setNewPlayers(good, evil) {
+// The Lady of the Lake token starts with the player "to the right" of the first
+// leader, which at the table means counter-clockwise = the PREVIOUS player in
+// seating order (wrapping). Seats are positional, so we look ONLY at the seat
+// immediately counter-clockwise: if that seat is unnamed the holder is unknown
+// (null) — we don't skip past blanks, which would name the wrong player.
+function _deriveLotlHolder() {
   if (!_log) return
-  _log.optional.newPlayers = {
-    good: (good !== null && good !== '' && !isNaN(good)) ? Number(good) : null,
-    evil: (evil !== null && evil !== '' && !isNaN(evil)) ? Number(evil) : null,
-  }
+  _log.optional.lotlHolder = null
+  const s  = _log.optional.seating
+  const fl = _log.optional.firstLeader
+  if (!Array.isArray(s) || !s.length || fl == null || fl === '') return
+  // firstLeader is either a seat number (1..N) or a name to locate in seating.
+  const idx = (typeof fl === 'number')
+    ? fl - 1
+    : s.findIndex(x => x && String(x).toLowerCase() === String(fl).toLowerCase())
+  if (idx < 0 || idx >= s.length) return
+  const n    = s.length
+  const prev = s[((idx - 1) % n + n) % n]
+  if (prev && String(prev).trim()) _log.optional.lotlHolder = prev
+}
+
+function setSeating(seating) {
+  if (!_log) return
+  _log.optional.seating = Array.isArray(seating)
+    ? seating.map(n => (n == null ? '' : String(n).trim())) : []
+  _deriveLotlHolder()
+}
+
+function setFirstLeader(value) {
+  if (!_log) return
+  _log.optional.firstLeader = (value === '' || value == null) ? null : value
+  _deriveLotlHolder()
 }
 
 function setRoster(roster) {
@@ -136,7 +172,8 @@ module.exports = {
   setAssassinationTarget,
   setBalance,
   setAssassinConfidence,
-  setNewPlayers,
+  setSeating,
+  setFirstLeader,
   setRoster,
   setNotes,
   save,
