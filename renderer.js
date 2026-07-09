@@ -1775,7 +1775,11 @@ function renderSplitPanel() {
     if (preNight) {
       // Full pre-game preview: show NIGHT target first, then quests
       cursor = calcNightExpected()
-      splitsWrap.append(budgetEntry(makeMoon(), cursor))
+      const moonEntry = budgetEntry(makeMoon(), cursor)
+      // Same extra lead-out gap the frozen night row gets, so the preview's
+      // Moon → Q1 gap matches the Q5 → Assn gap.
+      moonEntry.classList.add('sp-night-frozen')
+      splitsWrap.append(moonEntry)
     } else if (gs.phase === 'night') {
       // Night in progress: project quests from when night is expected to end
       cursor = Math.max(gs.totalSecs, calcNightExpected())
@@ -1811,9 +1815,10 @@ function renderSplitPanel() {
   // Frozen assassination entry
   if (gs.assnSecs > 0) {
     const entry = document.createElement('div')
-    entry.className = 'sp-entry'
+    entry.className = 'sp-entry sp-assn-gap'
     const labelEl = document.createElement('span')
-    labelEl.className = 'sp-label sp-opt-label'
+    // sp-label-active tints the dagger the same gold (--sb-key) as the frozen moon.
+    labelEl.className = 'sp-label sp-label-active sp-opt-label'
     labelEl.appendChild(makeDagger())
     entry.style.alignItems = 'center'
     const timeEl = document.createElement('span')
@@ -1829,7 +1834,7 @@ function renderSplitPanel() {
   // Live assassination timer + target
   if (gs.phase === 'assassination') {
     const timerEntry = document.createElement('div')
-    timerEntry.className = 'sp-entry'
+    timerEntry.className = 'sp-entry sp-assn-gap'
     const timerLabel = document.createElement('span')
     timerLabel.className = 'sp-label sp-label-active sp-opt-label'
     timerLabel.appendChild(makeDagger())
@@ -1854,7 +1859,9 @@ function renderSplitPanel() {
 
   // Assassination budget lookahead — shown when not yet reached and Merlin is in play
   if ((preNight || gs.phase === 'night' || gs.phase === 'game') && settings.characters.merlin) {
-    splitsWrap.append(budgetEntry(makeDagger(), calcAssnBudget() - calcQ5TargetEnd()))
+    const assnEntry = budgetEntry(makeDagger(), calcAssnBudget() - calcQ5TargetEnd())
+    assnEntry.classList.add('sp-assn-gap')
+    splitsWrap.append(assnEntry)
   }
 
   panel.append(splitsWrap)
@@ -2227,7 +2234,11 @@ function renderOverlay() {
     overlay.classList.remove('hidden')
     overlay.classList.add('overlay-raised')
     setBody('night', `
-      <div class="ov-title grad-title" style="font-size:120px; letter-spacing:4px">Night phase</div>
+      <div class="ov-title-row">
+        <span class="ov-title-glyph">${makeMoon().outerHTML}</span>
+        <div class="ov-title grad-title" style="font-size:120px; letter-spacing:4px">Night phase</div>
+        <span class="ov-title-glyph">${makeMoon().outerHTML}</span>
+      </div>
       <div class="ov-rule"></div>
       <div class="ov-body">
         <div class="grad-line">Memorise your character card.</div>
@@ -2839,7 +2850,11 @@ function renderAssassinationArea() {
   if (showAssnHeader) {
     if (!header.classList.contains('visible')) {
       header.innerHTML = `
-        <div class="assn-title">Assassination</div>
+        <div class="assn-title-row">
+          <span class="assn-title-glyph">${makeDagger().outerHTML}</span>
+          <div class="assn-title">Assassination</div>
+          <span class="assn-title-glyph">${makeDagger().outerHTML}</span>
+        </div>
         <div class="assn-body">
           <div class="grad-line">Keep character cards hidden.</div>
           <div class="grad-line">Assassin may reveal their card and choose a target.</div>

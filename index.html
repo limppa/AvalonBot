@@ -636,6 +636,10 @@
        inter-row gap (rows are 7px+7px padding = 14px; +7px margin → 21px). */
     .sp-night-frozen { margin-bottom: 7px; }
 
+    /* Assn row gets the same extra lead-in gap the moon row has below it,
+       so the Q5 → Assn gap matches the Moon → Q1 gap. */
+    .sp-assn-gap { margin-top: 7px; }
+
     .sp-sep {
       height: 1px;
       background: linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.07) 25%, rgba(255,255,255,0.07) 75%, rgba(255,255,255,0));
@@ -646,10 +650,23 @@
        fill with currentColor, so they inherit the row label's color (gold when
        active, dim when future). */
     .sp-dagger { display: inline-block; line-height: 0; vertical-align: middle; }
-    .sp-dagger svg { display: block; fill: currentColor; }
+    .sp-dagger svg { display: block; fill: currentColor; height: 26px; width: auto; }
     /* Crescent moon — inline SVG (no asset); svg inherits currentColor via fill */
     .sp-moon { display: inline-block; line-height: 0; vertical-align: middle; }
-    .sp-moon svg { display: block; fill: currentColor; }
+    .sp-moon svg { display: block; fill: currentColor; height: 26px; width: 26px; }
+
+    /* In the sidebar rows the glyph must NOT drive row height — the gap between
+       rows should follow the timer text, so every row (Nite/Q/Assn) is spaced
+       identically. The glyph is centered in a zero-height box and allowed to
+       overflow, so a taller symbol extends past the row instead of pushing the
+       rows apart. (Heading glyphs live outside .sp-entry and are unaffected.) */
+    .sp-entry .sp-moon, .sp-entry .sp-dagger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 0;
+      overflow: visible;
+    }
 
     /* Q-label font — OptimusPrinceps on the Q1–Q5 rows */
     .sp-q-label {
@@ -1072,6 +1089,17 @@
       -webkit-text-fill-color: transparent;
     }
 
+    /* Assassination heading: crossed-dagger crests flank the title, tinted the
+       same crimson as the evil title gradient (fill:currentColor on the SVG). */
+    .assn-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 36px;
+    }
+    .assn-title-glyph { color: var(--evil-txt); line-height: 0; }
+    .assn-title-glyph svg { width: 68px; height: 77px; }
+
     .assn-rule {
       width: 300px;
       height: 1px;
@@ -1097,6 +1125,17 @@
       letter-spacing: 3px;
       line-height: 1;
     }
+
+    /* Night heading: crescent moons flank the title, sized up and tinted gold.
+       The glyph SVGs (fixed 22px) inherit color via fill:currentColor. */
+    .ov-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 44px;
+    }
+    .ov-title-glyph { color: var(--accent); line-height: 0; }
+    .ov-title-glyph svg { width: 84px; height: 84px; }
 
     .ov-rule {
       width: 520px;
