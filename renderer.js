@@ -7,6 +7,9 @@ const {
   CHAR_DESC,
   SPEED_ORDER,
   SPEED_LABELS,
+  COMPLEXITY_ORDER,
+  COMPLEXITY_LABELS,
+  COMPLEXITY_PRESETS,
   QUEST_ALLOTTED_BASE,
   QUEST_ALLOTTED_LOTL,
   QUEST_ALLOTTED_SUM,
@@ -22,6 +25,14 @@ const {
 const MusicPlayer = require('./music')
 const gameLogs    = require('./gameLogs')
 const players     = require('./players')
+const {
+  NightNarrator,
+  resolveNightScript,
+  expectedNightSecs,
+  NIGHT_NARRATION_DELAY_MS,
+  NIGHT_OUTRO_DELAY_MS,
+} = require('./night_phase/nightNarration')
+const audioSettings = require('./audioSettings')
 
 // ── Theme tokens ─────────────────────────────────────────────────────────────
 // Reads CSS variables once at startup — change values in :root to reskin canvas
@@ -51,14 +62,37 @@ const THEME = (() => {
 
 // Role accent colors — derived from THEME so they follow the active color scheme
 const ROLE_COLOR = {
-  'Merlin':        THEME.goodText,
-  'Percival':      THEME.goodText,
-  'Loyal Servant': THEME.goodText,
-  'Morgana':       THEME.evilText,
-  'Assassin':      THEME.evilText,
-  'Minion':        THEME.evilText,
-  'Oberon':        THEME.evilText,
-  'Mordred':       THEME.evilText,
+  'Merlin':          THEME.goodText,
+  'Percival':        THEME.goodText,
+  'Loyal Servant':   THEME.goodText,
+  'Good Lancelot':   THEME.goodText,
+  'Guinevere':       THEME.goodText,
+  'Tristan':         THEME.goodText,
+  'Iseult':          THEME.goodText,
+  'Morgana':         THEME.evilText,
+  'Assassin':        THEME.evilText,
+  'Minion':          THEME.evilText,
+  'Oberon':          THEME.evilText,
+  'Mordred':         THEME.evilText,
+  'Evil Lancelot':   THEME.evilText,
+  'Mordred (=Assn)': THEME.evilText,
+  'Morgana (=Assn)': THEME.evilText,
+  'Mark':            THEME.evilText,
+}
+
+// Team color for the Characters menu's toggle rows, keyed by settings.characters
+// key rather than display name. Lancelot is intentionally omitted — its row
+// gets a half-good/half-evil split treatment instead (see .lc-half-color).
+const CHAR_KEY_COLOR = {
+  merlin:        THEME.goodText,
+  percival:      THEME.goodText,
+  guinevere:     THEME.goodText,
+  tristanIsolde: THEME.goodText,
+  assassin:      THEME.evilText,
+  morgana:       THEME.evilText,
+  mordred:       THEME.evilText,
+  oberon:        THEME.evilText,
+  mark:          THEME.evilText,
 }
 
 // this is to collect information about crashes
@@ -85,11 +119,29 @@ function speedFromTime(players, time) {
 // Floors to the fastest preset whose anchor ≤ time, so 31 min stays in
 // 'fast' territory (card times, assn index) until 'normal's anchor is reached.
 function effectiveSpeed(time) {
-  let result = SPEED_ORDER[0]
-  for (const s of SPEED_ORDER) {
+  // Sorted by actual duration (fastest first) so this stays correct
+  // regardless of SPEED_ORDER's display order (saga-leftmost, currently).
+  const byDuration = [...SPEED_ORDER].sort(
+    (a, b) => timeFromSpeed(settings.players, a) - timeFromSpeed(settings.players, b)
+  )
+  let result = byDuration[0]
+  for (const s of byDuration) {
     if (timeFromSpeed(settings.players, s) <= time) result = s
   }
   return result
+}
+
+// The speed tier that actually governs card times and the discussion/
+// assassination budget. Prefers the explicit preset the user picked
+// (settings.gameSpeed) over re-deriving one from raw targetTime —
+// effectiveSpeed() re-anchors against the CURRENT character config (night
+// duration varies with characters), so without this preference the derived
+// tier can drift to a different preset's (much shorter/longer) card times
+// whenever characters/complexity change, even though the user never touched
+// Game Speed and targetTime itself hasn't moved. Falls back to effectiveSpeed()
+// only when targetTime was hand-edited off any preset (settings.gameSpeed null).
+function activeSpeed() {
+  return settings.gameSpeed || effectiveSpeed(settings.targetTime)
 }
 
 function timeFromSpeed(players, speed) {
@@ -119,7 +171,8 @@ const settings = {
   players:    7,
   gameSpeed:  'normal',
   targetTime: 45,   // = timeFromSpeed(7, 'normal')
-  characters: { merlin: true, assassin: true, percival: true, morgana: true, oberon: false, mordred: false },
+  characters: { merlin: true, assassin: true, percival: true, morgana: true, oberon: false, mordred: false,
+                lancelot: false, guinevere: false, tristanIsolde: false, mark: false },
   abilities:  { lotl: false, excalibur: false },
   menuRow:     0,
   menuPage:    'main',   // 'main' | 'characters'
@@ -315,53 +368,222 @@ function startNightFromLeader() {
   music.preload('Round 1', 'a')         // pre-buffer Round 1 for when night ends
   logEvent('Night phase')
   render()
+
+  // Narration starts a beat after the music does, not instantly on entry.
+  clearTimeout(_nightNarrationTimer)
+  _nightNarrationTimer = setTimeout(() => {
+    if (gs.phase !== 'night') return  // [ENTER] may have already skipped ahead
+    const script = resolveNightScript(settings.characters, settings.players)
+    nightNarrator.play(script)
+  }, NIGHT_NARRATION_DELAY_MS)
+}
+
+// Starts a 5s fade-out of the night-phase overlay once the player-count
+// close (8a/8b) begins — deliberately does NOT touch the narrator, so that
+// clip keeps playing uninterrupted through the fade (it's the last one in
+// the script, so nothing has to be scheduled after it). The actual phase
+// transition lands at the end of the fade, via endNightPhase().
+let _nightOutroTimer  = null
+let _nightOutroActive = false
+function beginNightOutro() {
+  if (gs.phase !== 'night' || _nightOutroActive) return
+  _nightOutroActive = true
+  const overlay = document.getElementById('phase-overlay')
+  overlay.style.transition = `opacity ${NIGHT_OUTRO_DELAY_MS / 1000}s ease`
+  overlay.style.opacity    = '0'
+  _nightOutroTimer = setTimeout(endNightPhase, NIGHT_OUTRO_DELAY_MS)
+}
+
+// Ends the night phase and moves into the game screen — reached either by
+// [ENTER] (an instant cut, at any point — even mid-fade) or automatically
+// once beginNightOutro()'s 5s fade finishes.
+function endNightPhase() {
+  if (gs.phase !== 'night') return  // guard against a duplicate trigger
+  clearTimeout(_nightNarrationTimer)
+  clearTimeout(_nightOutroTimer)
+  _nightOutroActive = false
+  nightNarrator.stop()
+  // Reset any in-flight fade styling — [ENTER] may have interrupted it, and
+  // the .hidden class below takes over showing/hiding the overlay from here.
+  const overlay = document.getElementById('phase-overlay')
+  overlay.style.transition = ''
+  overlay.style.opacity    = ''
+
+  gs.nightSecs = gs.totalSecs
+  gs.phase = 'game'
+  sidebarAnimatePending = true  // slide in Quest 1 target row
+  sidebarPop = { type: 'night' }  // pop the night time that just froze
+  gameLogs.recordNightEnd(gs.nightSecs)
+
+  // Carry-over: redistribute night spare/overtime to all quest discussions proportionally
+  const nightDelta = calcNightExpected() - gs.nightSecs
+  if (nightDelta !== 0) {
+    for (let j = 0; j < 5; j++) {
+      gs.questAllotted[j] = Math.max(0,
+        gs.questAllotted[j] + nightDelta * (QUEST_ALLOTTED_BASE[j] / QUEST_ALLOTTED_SUM)
+      )
+    }
+  }
+
+  resetTimerBar()
+  music.playPreloaded('a', { fallbackFolder: 'Round 1' })
+  logEvent('Quest 1 begins')
+  render()
+}
+
+// Pure "Normal" complexity formula — also used as the Normal tier preset by
+// tierPreset() below. Kept pure (no settings mutation) so it can be reused
+// for both applying defaults and comparing against the live settings.
+function defaultCharactersFor(players) {
+  return {
+    merlin: true, assassin: true, percival: true, morgana: true,
+    oberon:  (players === 7 || players >= 10),
+    mordred: (players === 9 || players >= 10),
+    lancelot: false, guinevere: false, tristanIsolde: false, mark: false,
+  }
 }
 
 function applyDefaultCharacters(players) {
-  settings.characters.merlin   = true
-  settings.characters.assassin = true
-  settings.characters.percival = true
-  settings.characters.morgana  = true
-  settings.characters.oberon   = (players === 7 || players >= 10)
-  settings.characters.mordred  = (players === 9 || players >= 10)
+  Object.assign(settings.characters, defaultCharactersFor(players))
   settings.abilities.lotl      = (players >= 7)
-  // excalibur is never suggested by default
+  settings.abilities.excalibur = false  // Normal never has it on — clears any leftover Veteran/Legendary flag
 }
 
-// Can the character be enabled (considering evil slot capacity + cascade)?
+// ── Complexity presets ───────────────────────────────────────────────────────
+// See "presets for characters and tokens.md". A tier is a full character +
+// ability configuration; Vanilla/Normal are generated (same shape at every
+// player count), the rest come from COMPLEXITY_PRESETS (gameData.js), which
+// only covers the counts/tiers the design note has actually filled in.
+
+const CHARACTER_KEYS = ['merlin', 'assassin', 'percival', 'morgana', 'oberon', 'mordred',
+                         'lancelot', 'guinevere', 'tristanIsolde', 'mark']
+
+function fillChars(onKeys) {
+  const c = {}
+  for (const k of CHARACTER_KEYS) c[k] = onKeys.includes(k)
+  return c
+}
+
+// Returns { chars, abilities:{lotl,excalibur} } for a tier at a player count,
+// or null if that tier isn't offered there yet.
+function tierPreset(players, tier) {
+  if (tier === 'vanilla') return { chars: fillChars([]), abilities: { lotl: false, excalibur: false } }
+  if (tier === 'normal') {
+    return { chars: defaultCharactersFor(players), abilities: { lotl: players >= 7, excalibur: false } }
+  }
+  const p = COMPLEXITY_PRESETS[players]?.[tier]
+  if (!p) return null
+  return {
+    chars:      fillChars(p.chars),
+    abilities:  { lotl: p.abilities.includes('lotl'), excalibur: p.abilities.includes('excalibur') },
+  }
+}
+
+function availableTiers(players) {
+  return COMPLEXITY_ORDER.filter(t => tierPreset(players, t) !== null)
+}
+
+function matchesPreset(players, tier) {
+  const p = tierPreset(players, tier)
+  if (!p) return false
+  return CHARACTER_KEYS.every(k => !!settings.characters[k] === !!p.chars[k]) &&
+         !!settings.abilities.lotl      === !!p.abilities.lotl &&
+         !!settings.abilities.excalibur === !!p.abilities.excalibur
+}
+
+// Derived, never stored — so it can never desync from the live toggles.
+function currentComplexityTier() {
+  return availableTiers(settings.players).find(t => matchesPreset(settings.players, t)) || 'custom'
+}
+
+function applyComplexityTier(tier) {
+  const p = tierPreset(settings.players, tier)
+  if (!p) return
+  Object.assign(settings.characters, p.chars)
+  settings.abilities.lotl      = p.abilities.lotl
+  settings.abilities.excalibur = p.abilities.excalibur
+}
+
+// Step to the next/previous available tier for the current player count.
+// Mirrors GAME SPEED: arrow keys clamp (no wrap), clicks wrap. From 'custom'
+// (not itself in the list) both land on index 0 — editing always resolves to
+// a concrete tier, never a no-op.
+function stepComplexityTier(delta, wrap) {
+  const tiers = availableTiers(settings.players)
+  const idx   = tiers.indexOf(currentComplexityTier())
+  const nextIdx = wrap
+    ? (idx + delta + tiers.length) % tiers.length
+    : Math.max(0, Math.min(tiers.length - 1, idx + delta))
+  applyComplexityTier(tiers[nextIdx])
+}
+
+// Small dot-track visual: one pip per item in `order` (fixed min→max order),
+// glowing for whichever one is current. `available` (Set) marks which items
+// get the lit "available" style; omit it when every item always qualifies
+// (Players, Game Speed — unlike Complexity, nothing is ever off-limits there).
+function dotTrackHTML(order, current, available = null) {
+  return `<span class="complexity-track">${order.map(item =>
+    `<span class="complexity-pip${(!available || available.has(item)) ? ' available' : ''}${item === current ? ' current' : ''}"></span>`
+  ).join('')}</span>`
+}
+
+function complexityTrackHTML(players, tier) {
+  return dotTrackHTML(COMPLEXITY_ORDER, tier, new Set(availableTiers(players)))
+}
+
+const PLAYER_COUNTS = [5, 6, 7, 8, 9, 10]
+
+function complexityRowDef() {
+  const tier = currentComplexityTier()
+  return {
+    key: 'complexity', label: 'COMPLEXITY',
+    value: tier === 'custom' ? 'Custom' : COMPLEXITY_LABELS[tier],
+    desc: complexityTrackHTML(settings.players, tier),
+    isOn: tier === 'custom',
+  }
+}
+
+// Evil/Good slot capacity by player count. Evil slots are fixed by the
+// physical player count; good slots are whatever's left.
+function evilSlotsFor(players) { return players <= 6 ? 2 : players <= 9 ? 3 : 4 }
+function goodSlotsFor(players) { return players - evilSlotsFor(players) }
+
+// Evil-side named units a given character config would use. Assassin shares a
+// physical card with Mordred (preferred) or Morgana (fallback, when Mordred
+// isn't in play), so that pairing only costs one unit once capacity would
+// otherwise be exceeded.
+function evilUnitsUsed(c, players) {
+  const named   = ['assassin', 'morgana', 'mordred', 'oberon', 'lancelot', 'mark'].filter(k => c[k]).length
+  const canMerge = c.assassin && (c.mordred || c.morgana)
+  return (canMerge && named > evilSlotsFor(players)) ? named - 1 : named
+}
+
+function goodUnitsUsed(c) {
+  return (c.merlin ? 1 : 0) + (c.percival ? 1 : 0) + (c.lancelot ? 1 : 0) +
+         (c.guinevere ? 1 : 0) + (c.tristanIsolde ? 2 : 0)
+}
+
+// Can the character be enabled (considering slot capacity + cascade + merge)?
 function canEnableCharacter(key) {
   const c = settings.characters
   if (c[key]) return true  // already ON → can always be turned off
-  const evilSlots = settings.players <= 6 ? 2 : settings.players <= 9 ? 3 : 4
-  const curEvil   = ['assassin','morgana','mordred','oberon'].filter(k => c[k]).length
-  // Count new evil slots needed by this key + cascade
-  const needAssassin = c.assassin ? 0 : 1
-  let need = 0
-  if      (key === 'assassin')                     need = 1
-  else if (key === 'morgana')                      need = 1 + needAssassin  // cascade to Assassin+Merlin
-  else if (key === 'mordred')                      need = 1 + needAssassin  // cascade to Merlin+Assassin
-  else if (key === 'oberon')                       need = 1
-  else if (key === 'merlin' || key === 'percival') need = needAssassin  // good chars, only cascade to Assassin
-  if (curEvil + need <= evilSlots) return true
-  // Allow if Morgana+Assassin can merge to free one slot
-  if ((key === 'morgana' || key === 'oberon' || key === 'mordred') && need === 1) {
-    if (key === 'morgana') return c.assassin && curEvil === evilSlots
-    return c.morgana && c.assassin && curEvil === evilSlots
-  }
-  return false
-}
 
-// True when Morgana+Assassin are combined into one slot to fit an extra evil.
-function isMorganaAssnMerged() {
-  const c = settings.characters
-  if (!c.morgana || !c.assassin) return false
-  const evilSlots = settings.players <= 6 ? 2 : settings.players <= 9 ? 3 : 4
-  return ['assassin','morgana','mordred','oberon'].filter(k => c[k]).length > evilSlots
+  // Simulate this key + its ON-cascade prerequisites, then check both pools.
+  const test = { ...c, [key]: true }
+  if (key === 'percival')  { test.merlin = test.assassin = true }
+  if (key === 'morgana')   { test.percival = test.merlin = test.assassin = true }
+  if (key === 'mordred')   { test.merlin = test.assassin = true }
+  if (key === 'guinevere') { test.lancelot = true }
+  if (key === 'mark')      { test.tristanIsolde = true }
+
+  if (goodUnitsUsed(test) > goodSlotsFor(settings.players)) return false
+  return evilUnitsUsed(test, settings.players) <= evilSlotsFor(settings.players)
 }
 
 // Toggle a character with cascade rules:
 //   Merlin ↔ Assassin (always together)
 //   Percival requires Merlin; Morgana requires Percival
+//   Guinevere requires Lancelot; Mark requires Tristan & Iseult
 function toggleCharacter(key) {
   const c = settings.characters
   const turningOn = !c[key]
@@ -373,17 +595,22 @@ function toggleCharacter(key) {
       c.merlin = c.assassin = c.percival = c.morgana = c.mordred = false
     } else if (key === 'percival') {
       c.morgana = false
+    } else if (key === 'lancelot') {
+      c.guinevere = false
+    } else if (key === 'tristanIsolde') {
+      c.mark = false
     }
-    // morgana / oberon / mordred: no further cascade
   } else {
     if (!canEnableCharacter(key)) return  // no slots available or prerequisite missing
     c[key] = true
     // Cascade ON prerequisites
-    if (key === 'merlin')   { c.assassin = true }
-    if (key === 'assassin') { c.merlin   = true }
-    if (key === 'percival') { c.merlin = c.assassin = true }
-    if (key === 'morgana')  { c.percival = c.merlin = c.assassin = true }
-    if (key === 'mordred') { c.merlin = c.assassin = true }  // Mordred cascades Merlin+Assassin on
+    if (key === 'merlin')    { c.assassin = true }
+    if (key === 'assassin')  { c.merlin   = true }
+    if (key === 'percival')  { c.merlin = c.assassin = true }
+    if (key === 'morgana')   { c.percival = c.merlin = c.assassin = true }
+    if (key === 'mordred')   { c.merlin = c.assassin = true }  // Mordred cascades Merlin+Assassin on
+    if (key === 'guinevere') { c.lancelot = true }
+    if (key === 'mark')      { c.tristanIsolde = true }
   }
 }
 
@@ -391,16 +618,30 @@ function buildTeamRoles(players, characters) {
   const evilCount = players <= 6 ? 2 : players <= 9 ? 3 : 4
   const goodCount = players - evilCount
 
-  const evil = []
-  if (characters.assassin) evil.push('Assassin')
-  if (characters.morgana)  evil.push('Morgana')
-  if (characters.mordred)  evil.push('Mordred')
-  if (characters.oberon)   evil.push('Oberon')
+  const evilNamed = []
+  if (characters.assassin) evilNamed.push('Assassin')
+  if (characters.morgana)  evilNamed.push('Morgana')
+  if (characters.mordred)  evilNamed.push('Mordred')
+  if (characters.oberon)   evilNamed.push('Oberon')
+  if (characters.lancelot) evilNamed.push('Evil Lancelot')
+  if (characters.mark)     evilNamed.push('Mark')
+
+  // Assassin shares one physical card with Mordred (preferred) or Morgana
+  // (fallback, when Mordred isn't in play) once evil is short on slots.
+  const canMerge    = characters.assassin && (characters.mordred || characters.morgana)
+  const mergePartner = characters.mordred ? 'Mordred' : 'Morgana'
+  const merged = canMerge && evilNamed.length > evilCount
+  const evil = merged
+    ? [`${mergePartner} (=Assn)`, ...evilNamed.filter(r => r !== 'Assassin' && r !== mergePartner)]
+    : evilNamed
   while (evil.length < evilCount) evil.push('Minion')
 
   const good = []
-  if (characters.merlin)   good.push('Merlin')
-  if (characters.percival) good.push('Percival')
+  if (characters.merlin)        good.push('Merlin')
+  if (characters.percival)      good.push('Percival')
+  if (characters.lancelot)      good.push('Good Lancelot')
+  if (characters.guinevere)     good.push('Guinevere')
+  if (characters.tristanIsolde) good.push('Tristan', 'Iseult')
   while (good.length < goodCount) good.push('Loyal Servant')
 
   return { good, evil }
@@ -422,7 +663,7 @@ function calcAssnFraction() {
 // Returns the discussion-only budget in seconds for the current settings.
 // Assassination's slice is split off via calcAssnFraction(); the rest is the Q1-Q5 pool.
 function calcDiscussionBudget() {
-  const speed     = effectiveSpeed(settings.targetTime)
+  const speed     = activeSpeed()
   const cardTimes = QUEST_CARD_TIME[speed]
   const cardTotal = gs.questSizes.reduce((sum, size) => sum + (cardTimes[size] || 60), 0)
   const nightSecs = calcNightExpected()
@@ -454,15 +695,78 @@ function setMenuPlayers(n) {
   renderSplitPanel()
 }
 
+// Number of selectable (non-separator) rows on the current menu page — the
+// single source of truth for row-navigation wraparound, shared by the plain
+// move below and the accelerating key-repeat.
+function menuSelectableCount() {
+  if (settings.menuPage === 'main')       return 8
+  if (settings.menuPage === 'characters') return 14
+  return 3  // 'audio': music, narrator, back
+}
+
+function moveMenuRow(delta) {
+  const n = menuSelectableCount()
+  settings.menuRow = (settings.menuRow + delta + n) % n
+  renderOverlay()
+}
+
+// Accelerating key-repeat for ↑/↓ row navigation: the OS's own key-repeat
+// fires at one fixed rate, so instead we drive it ourselves — first move is
+// instant, then repeats speed up the longer the key stays held, so a long
+// hold can cross the whole menu quickly while a tap still moves just one row.
+const MENU_REPEAT_START_MS = 300   // delay before the first auto-repeat
+const MENU_REPEAT_MIN_MS   = 40    // fastest rate once fully ramped up
+const MENU_REPEAT_RAMP     = 0.82  // interval shrinks by this factor each tick
+
+let _menuRepeatTimer = null
+let _menuRepeatKey   = null
+let _menuRepeatMs    = MENU_REPEAT_START_MS
+
+function menuRepeatStop() {
+  clearTimeout(_menuRepeatTimer)
+  _menuRepeatTimer = null
+  _menuRepeatKey   = null
+  _menuRepeatMs    = MENU_REPEAT_START_MS
+}
+
+function menuRepeatTick(delta) {
+  if (gs.phase !== 'menu') { menuRepeatStop(); return }
+  moveMenuRow(delta)
+  _menuRepeatMs = Math.max(MENU_REPEAT_MIN_MS, _menuRepeatMs * MENU_REPEAT_RAMP)
+  _menuRepeatTimer = setTimeout(() => menuRepeatTick(delta), _menuRepeatMs)
+}
+
+function menuRepeatStart(key, delta) {
+  menuRepeatStop()
+  _menuRepeatKey = key
+  _menuRepeatMs  = MENU_REPEAT_START_MS
+  _menuRepeatTimer = setTimeout(() => menuRepeatTick(delta), _menuRepeatMs)
+}
+
 function applyMenuChange(row, delta) {
   if (settings.menuPage === 'main') {
-    // row 0=players, 1=gameSpeed, 2=targetTime, 3=characters(submenu), 4=lotl, 5=excalibur, 6=start
+    // row 0=players, 1=complexity, 2=configuration(submenu), 3=gameSpeed,
+    // 4=targetTime, 5=audio(submenu), 6=setup, 7=start
     if (row === 0) {
       const next = Math.min(10, Math.max(5, settings.players + delta))
       if (next !== settings.players) setMenuPlayers(next)
     } else if (row === 1) {
+      // COMPLEXITY: step through available tiers for this player count, no wrap
+      stepComplexityTier(delta, false)
+      updateQuestAllotted()
+      renderOverlay()
+      renderCharPanel()
+      renderSplitPanel()
+    } else if (row === 2) {
+      // CONFIGURATION row — open submenu on right arrow
+      if (delta > 0) {
+        settings.menuPage = 'characters'
+        settings.menuRow  = 0
+        renderOverlay()
+      }
+    } else if (row === 3) {
       // GAME SPEED: step through options, no wrap-around
-      const cur     = settings.gameSpeed || effectiveSpeed(settings.targetTime)
+      const cur     = activeSpeed()
       const idx     = SPEED_ORDER.indexOf(cur)
       const nextIdx = Math.max(0, Math.min(SPEED_ORDER.length - 1, idx + delta))
       if (nextIdx !== idx) {
@@ -472,41 +776,64 @@ function applyMenuChange(row, delta) {
         renderOverlay()
         renderSplitPanel()
       }
-    } else if (row === 2) {
+    } else if (row === 4) {
       // GAME LENGTH: adjust in 5 min increments
       settings.targetTime = Math.min(150, Math.max(5, settings.targetTime + delta))
       settings.gameSpeed  = speedFromTime(settings.players, settings.targetTime)
       updateQuestAllotted()
       renderOverlay()
       renderSplitPanel()
-    } else if (row === 3) {
-      // CHARACTERS row — open submenu on right arrow
+    } else if (row === 5) {
+      // AUDIO row — open submenu on right arrow
       if (delta > 0) {
-        settings.menuPage = 'characters'
+        settings.menuPage = 'audio'
         settings.menuRow  = 0
         renderOverlay()
       }
-    } else if (row === 4) {
+    } else if (row === 6) {
+      // ADD PLAYERS — open on right arrow (also opens on Enter, see keydown)
+      if (delta > 0) { setupReturnPhase = 'menu'; gs.phase = 'setup'; renderOverlay() }
+    }
+  } else if (settings.menuPage === 'audio') {
+    // row 0=music, 1=narrator, 2=back
+    if (row === 0) {
+      const pct = Math.max(0, Math.min(100, audioSettings.get().music + delta * 5))
+      audioSettings.setMusic(pct)
+      music.setVolume(pct)
+      renderOverlay()
+    } else if (row === 1) {
+      const pct = Math.max(0, Math.min(100, audioSettings.get().narrator + delta * 5))
+      audioSettings.setNarrator(pct)
+      nightNarrator.setVolume(pct)
+      renderOverlay()
+    } else if (row === 2) {
+      settings.menuPage = 'main'; settings.menuRow = 5; renderOverlay()
+    }
+  } else if (settings.menuPage === 'characters') {
+    // row 0=complexity, 1=merlin, 2=assassin, 3=mordred, 4=percival, 5=morgana,
+    // 6=oberon, 7=lancelot, 8=guinevere, 9=tristanIsolde, 10=mark, 11=lotl,
+    // 12=excalibur, 13=back
+    const keys = ['complexity', 'merlin', 'assassin', 'mordred', 'percival', 'morgana', 'oberon', 'lancelot', 'guinevere', 'tristanIsolde', 'mark', 'lotl', 'excalibur', 'back']
+    const key = keys[row]
+    if (key === 'complexity') {
+      stepComplexityTier(delta, false)
+      updateQuestAllotted()
+      renderOverlay()
+      renderCharPanel()
+      renderSplitPanel()
+    } else if (key === 'lotl') {
       settings.abilities.lotl = !settings.abilities.lotl
       updateQuestAllotted()
       renderOverlay()
       renderCharPanel()
       renderSplitPanel()
-    } else if (row === 5) {
+    } else if (key === 'excalibur') {
       settings.abilities.excalibur = !settings.abilities.excalibur
       renderOverlay()
       renderCharPanel()
-    } else if (row === 6) {
-      // ADD PLAYERS — open on right arrow (also opens on Enter, see keydown)
-      if (delta > 0) { setupReturnPhase = 'menu'; gs.phase = 'setup'; renderOverlay() }
-    }
-  } else if (settings.menuPage === 'characters') {
-    // row 0=merlin, 1=percival, 2=assassin, 3=morgana, 4=mordred, 5=oberon, 6=back
-    const keys = ['merlin', 'percival', 'assassin', 'morgana', 'mordred', 'oberon', 'back']
-    const key = keys[row]
-    if (key === 'back') {
+    } else if (key === 'back') {
       settings.menuPage = 'main'
-      settings.menuRow  = 3
+      settings.menuRow  = 2
       renderOverlay()
     } else if (key) {
       toggleCharacter(key)
@@ -527,16 +854,22 @@ function startGameFromMenu() {
 
 // Click handler for a menu row (mirrors keyboard nav). Steppers advance forward
 // with wrap so a click is never a no-op; toggles flip; action rows activate.
-function handleMenuClick(key) {
+// rowIdx (from the clicked row's data-row-idx) is authoritative when given —
+// order.indexOf(key) is a fallback and can't disambiguate two rows that ever
+// end up sharing one toggle key.
+function handleMenuClick(key, rowIdx) {
   if (settings.menuPage === 'main') {
-    const order = ['players', 'speed', 'time', 'chars', 'lotl', 'excalibur', 'setup', 'start']
-    const idx = order.indexOf(key)
+    const order = ['players', 'complexity', 'chars', 'speed', 'time', 'audio', 'setup', 'start']
+    const idx = rowIdx ?? order.indexOf(key)
     if (idx < 0) return
     settings.menuRow = idx
     if (key === 'players') {
       setMenuPlayers(settings.players >= 10 ? 5 : settings.players + 1)
+    } else if (key === 'complexity') {
+      stepComplexityTier(1, true)   // cycle forward with wrap
+      updateQuestAllotted(); renderOverlay(); renderCharPanel(); renderSplitPanel()
     } else if (key === 'speed') {
-      const cur  = settings.gameSpeed || effectiveSpeed(settings.targetTime)
+      const cur  = activeSpeed()
       const next = SPEED_ORDER[(SPEED_ORDER.indexOf(cur) + 1) % SPEED_ORDER.length]
       settings.gameSpeed  = next
       settings.targetTime = timeFromSpeed(settings.players, next)
@@ -545,22 +878,45 @@ function handleMenuClick(key) {
       settings.targetTime = settings.targetTime >= 150 ? 5 : Math.min(150, settings.targetTime + 5)
       settings.gameSpeed  = speedFromTime(settings.players, settings.targetTime)
       updateQuestAllotted(); renderOverlay(); renderSplitPanel()
-    } else if (key === 'lotl' || key === 'excalibur') {
-      applyMenuChange(idx, 1)   // toggle (delta ignored)
     } else if (key === 'chars') {
       settings.menuPage = 'characters'; settings.menuRow = 0; renderOverlay()
+    } else if (key === 'audio') {
+      settings.menuPage = 'audio'; settings.menuRow = 0; renderOverlay()
     } else if (key === 'setup') {
       setupReturnPhase = 'menu'; gs.phase = 'setup'; renderOverlay()
     } else if (key === 'start') {
       startGameFromMenu()
     }
-  } else if (settings.menuPage === 'characters') {
-    const order = ['merlin', 'percival', 'assassin', 'morgana', 'mordred', 'oberon', 'back']
-    const idx = order.indexOf(key)
+  } else if (settings.menuPage === 'audio') {
+    const order = ['music', 'narrator', 'back']
+    const idx = rowIdx ?? order.indexOf(key)
     if (idx < 0) return
     settings.menuRow = idx
-    if (key === 'back') {
-      settings.menuPage = 'main'; settings.menuRow = 3; renderOverlay()
+    if (key === 'music') {
+      const pct = audioSettings.get().music >= 100 ? 0 : audioSettings.get().music + 5
+      audioSettings.setMusic(pct); music.setVolume(pct); renderOverlay()
+    } else if (key === 'narrator') {
+      const pct = audioSettings.get().narrator >= 100 ? 0 : audioSettings.get().narrator + 5
+      audioSettings.setNarrator(pct); nightNarrator.setVolume(pct); renderOverlay()
+    } else if (key === 'back') {
+      settings.menuPage = 'main'; settings.menuRow = 5; renderOverlay()
+    }
+  } else if (settings.menuPage === 'characters') {
+    const order = ['complexity', 'merlin', 'assassin', 'mordred', 'percival', 'morgana', 'oberon', 'lancelot', 'guinevere', 'tristanIsolde', 'mark', 'lotl', 'excalibur', 'back']
+    const idx = rowIdx ?? order.indexOf(key)
+    if (idx < 0) return
+    settings.menuRow = idx
+    if (key === 'complexity') {
+      stepComplexityTier(1, true)   // cycle forward with wrap
+      updateQuestAllotted(); renderOverlay(); renderCharPanel(); renderSplitPanel()
+    } else if (key === 'lotl') {
+      settings.abilities.lotl = !settings.abilities.lotl
+      updateQuestAllotted(); renderOverlay(); renderCharPanel(); renderSplitPanel()
+    } else if (key === 'excalibur') {
+      settings.abilities.excalibur = !settings.abilities.excalibur
+      renderOverlay(); renderCharPanel()
+    } else if (key === 'back') {
+      settings.menuPage = 'main'; settings.menuRow = 2; renderOverlay()
     } else {
       toggleCharacter(key)
       updateQuestAllotted()
@@ -577,11 +933,34 @@ applyDefaultCharacters(settings.players)
 const music = new MusicPlayer()
 music.onTrackChange = () => renderNowPlaying()
 
+// Drives the real night phase (see startNightFromLeader()/endNightPhase()).
+// Also reachable as a standalone test rig from the menu screen — press [N]
+// to hear the script for whatever's currently configured in Players/Characters,
+// [Shift+N] to stop it.
+const nightNarrator = new NightNarrator()
+let _nightNarrationTimer = null
+
+// The player-count close (8a/8b) is the cue to start fading into the game
+// screen — fires the instant that clip starts, not after it finishes.
+nightNarrator.onClipStart = (file) => {
+  if (gs.phase === 'night' && /^8[ab] /.test(file)) beginNightOutro()
+}
+
 // ── Game state ───────────────────────────────────────────────────────────────
+
+// Fisher-Yates shuffle, used to build a fresh Lancelot Loyalty deck each game.
+function shuffled(arr) {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
 
 function newGame(players = settings.players) {
   const questSizes_ = [...QUEST_SIZES[players]]
-  const speed_      = effectiveSpeed(settings.targetTime)
+  const speed_      = activeSpeed()
   const cardTimes_  = QUEST_CARD_TIME[speed_]
   const cardTotal_  = questSizes_.reduce((sum, size) => sum + (cardTimes_[size] || 60), 0)
   const nightSecs_  = calcNightExpected()   // hoisted — safe to call before definition
@@ -618,6 +997,10 @@ function newGame(players = settings.players) {
     questPhaseOffset: 0,
     panelOpen:        false,
     lotlPromptActive: false,
+    // Lancelot's Loyalty deck: 3 "No Change" + 2 "Switch", drawn without
+    // replacement at the start of Q3/Q4/Q5. Reset fresh each game.
+    lancelotDeck:     shuffled(['switch', 'switch', 'none', 'none', 'none']),
+    lancelotHistory:  [],   // drawn card types so far, in draw order (left to right)
   }
 }
 
@@ -661,7 +1044,7 @@ const PI          = Math.PI
 const TAU         = 2 * PI
 
 function questCardRef(teamSize) {
-  return QUEST_CARD_TIME[effectiveSpeed(settings.targetTime)][teamSize] || 60
+  return QUEST_CARD_TIME[activeSpeed()][teamSize] || 60
 }
 
 // state: 'pending' | 'voting' | 'card' | 'resolved-success' | 'resolved-fail'
@@ -836,9 +1219,11 @@ function updateArcNum(i, playerCount, state) {
               : state === 'pending'          ? THEME.dim
               : THEME.cream
   el.style.color = color
-  // Lady-of-the-Lake teardrop tracks the number's colour exactly (fill: currentColor)
+  // Lady-of-the-Lake teardrop + Lancelot switch badge track the number's colour exactly
   const drop = document.getElementById(`lotl-badge-${i}`)
   if (drop) drop.style.color = color
+  const lance = document.getElementById(`lancelot-badge-${i}`)
+  if (lance) lance.style.color = color
 }
 
 // ── DOM construction (run once) ──────────────────────────────────────────────
@@ -903,6 +1288,14 @@ function buildStaticDOM() {
         '<svg class="lotl-drop-svg" viewBox="0 0 24 32">' +
         '<path d="M12 1 C12 1 4 12 4 20 A8 8 0 1 0 20 20 C20 12 12 1 12 1 Z"/></svg>'
       front.append(badge)
+
+      // Lancelot switch badge — same hole, same spot when LotL is off; stacks
+      // above the teardrop (via CSS) when both are on.
+      const lanceBadge = document.createElement('div')
+      lanceBadge.className = 'lancelot-badge'
+      lanceBadge.id = `lancelot-badge-${i}`
+      lanceBadge.textContent = '⇄'
+      front.append(lanceBadge)
     }
 
     flipper.append(front)
@@ -1153,12 +1546,12 @@ function buildLeaderHTML() {
     <div class="ov-title grad-title leader-title">First leader</div>
     <div class="ov-rule"></div>
     <div class="leader-pick">
+      <div id="leader-warning" class="leader-warning">no leader chosen</div>
       <div class="log-input-wrap leader-input-wrap">
         <input type="text" id="leader-input" class="log-player-input leader-value" value="${_esc(flStr)}"
                placeholder="—" autocomplete="off" spellcheck="false">
         <button class="log-ac-btn leader-ac-btn" tabindex="-1">▾</button>
       </div>
-      <div id="leader-warning" class="leader-warning">no leader chosen</div>
     </div>
     <div class="leader-btns">
       <button id="leader-randomize" class="log-submit-btn">[SPACE]  Randomize leader</button>
@@ -1264,6 +1657,16 @@ function buildLogHTML() {
       </div>
     </div>` : ''
 
+  const victimVal  = (logDraft && logDraft.victim) ? logDraft.victim : 'merlin'
+  const victimHTML = (gs.assnStart > 0 && settings.characters.guinevere) ? `
+    <div class="log-field">
+      <div class="log-field-label">Targeted as</div>
+      <div class="log-toggle-row" id="log-victim-row">
+        <button type="button" class="log-toggle-btn${victimVal === 'merlin'    ? ' active' : ''}" data-victim="merlin">Merlin</button>
+        <button type="button" class="log-toggle-btn${victimVal === 'guinevere' ? ' active' : ''}" data-victim="guinevere">Guinevere</button>
+      </div>
+    </div>` : ''
+
   const flPre = preGame.firstLeader == null ? ''
     : (typeof preGame.firstLeader === 'number' ? String(preGame.firstLeader) : preGame.firstLeader)
   const flVal = logDraft ? _esc(logDraft.firstLeader) : _esc(flPre)
@@ -1291,6 +1694,7 @@ function buildLogHTML() {
     ${balanceHTML}
     ${confHTML}
     ${targetHTML}
+    ${victimHTML}
     <div class="log-sep"></div>
     ${firstLeaderHTML}
     <div class="log-sep"></div>
@@ -1312,6 +1716,7 @@ function captureLogDraft() {
     seats, chars,
     firstLeader: document.getElementById('log-first-leader')?.value || '',
     target:      document.getElementById('log-assn-target')?.value || '',
+    victim:      document.querySelector('#log-victim-row .log-toggle-btn.active')?.dataset.victim || 'merlin',
     notes:       document.getElementById('log-notes')?.value || '',
     balance:     (balEl && balEl.classList.contains('touched')) ? balEl.value : null,
     conf:        (conEl && conEl.classList.contains('touched')) ? conEl.value : null,
@@ -1340,6 +1745,7 @@ function render() {
   renderQuests()
   renderLotlIndicators()
   renderLotlBanner()
+  renderLancelotDeck()
   renderVoteTrack()
   renderCharPanel()
   renderSplitPanel()
@@ -1360,15 +1766,7 @@ function logEvent(msg) {
 }
 
 function calcNightExpected() {
-  const c = settings.characters
-  const evilCount = settings.players <= 6 ? 2 : settings.players <= 9 ? 3 : 4
-  return 20
-    + (evilCount - 2) * 5
-    + (c.morgana  ? 10 : 0)
-    + (c.oberon   ?  5 : 0)
-    + (c.mordred  ?  5 : 0)
-    + (c.merlin   ? 20 : 0)
-    + (c.percival ? 15 : 0)
+  return expectedNightSecs(settings.characters, settings.players)
 }
 
 function calcAssnBudget() {
@@ -1379,7 +1777,7 @@ function calcAssnBudget() {
 // Assassination buffer = available/6 (the 1/6 not given to quest discussions).
 // This value is fixed for the duration of the game.
 function calcQ5TargetEnd() {
-  const speed     = effectiveSpeed(settings.targetTime)
+  const speed     = activeSpeed()
   const cardTimes = QUEST_CARD_TIME[speed]
   const cardTotal = gs.questSizes.reduce((sum, size) => sum + (cardTimes[size] || 60), 0)
   return calcNightExpected() + cardTotal + calcDiscussionBudget()
@@ -2070,46 +2468,50 @@ function renderOverlay() {
       return rowDefs.map((row, i) => {
         if (!row.label) return `<div class="menu-sep"></div>`
         const focused  = i === focusedRowIdx
-        const extra    = (row.info ? ' info' : '') + (row.disabled && !row.info ? ' disabled' : '') + (focused ? ' focused' : '')
+        // Position within the selectable-only sequence — robust even if two
+        // rows ever end up sharing one toggle key (rowDefs.indexOf(row.key)
+        // wouldn't be).
+        const rowIdx   = selectableKeys.indexOf(i)
+        const extra    = (row.info ? ' info' : '') + (row.disabled && !row.info ? ' disabled' : '') + (focused ? ' focused' : '') + (row.bold ? ' bold' : '')
         const cls      = 'menu-row' + extra
         const valClass = 'menu-row-value' + (row.isOn || focused ? ' menu-val-on' : '')
+        // Lancelot's name is half good-blue / half evil-red (top/bottom) since
+        // the one row covers both sides — see .lc-half-color.
+        const labelName = row.split ? `<span class="lc-half-color">${row.label}</span>` : row.label
         const labelInner = row.desc
-          ? `${row.label}<span class="menu-row-desc">${row.desc}</span>`
-          : row.label
-        return `<div class="${cls}" data-menu-key="${row.key}"><span class="menu-row-label">${labelInner}</span>` +
+          ? `${labelName}<span class="menu-row-desc">${row.desc}</span>`
+          : labelName
+        // Team color on the character name itself — still shown when disabled
+        // (CSS dims it via opacity there so it still reads as "unavailable").
+        const labelColor = row.color ? ` style="color:${row.color}"` : ''
+        return `<div class="${cls}" data-menu-key="${row.key}" data-row-idx="${rowIdx}"><span class="menu-row-label"${labelColor}>${labelInner}</span>` +
                `<span class="${valClass}">${row.value}</span></div>`
       }).join('')
     }
 
     if (settings.menuPage === 'main') {
-      // Show what differs from per-player defaults
-      const def = {
-        merlin: true, assassin: true, percival: true, morgana: true,
-        oberon:  (settings.players === 7 || settings.players >= 10),
-        mordred: (settings.players === 9 || settings.players >= 10),
-      }
-      const diffs = Object.entries(def)
-        .filter(([k, d]) => settings.characters[k] !== d)
-      const charValue = (diffs.length ? 'custom' : 'defaults') + ' ▸'
+      const tier = currentComplexityTier()
 
       const speedLabel = settings.gameSpeed ? SPEED_LABELS[settings.gameSpeed] : 'Custom'
       const rowDefs = [
-        { key: 'players',   label: 'PLAYERS',          value: String(settings.players) },
-        { key: 'speed',     label: 'GAME SPEED',        value: speedLabel },
-        { key: 'time',      label: 'GAME LENGTH',       value: settings.targetTime + ' min' },
+        { key: 'players',   label: 'PLAYER COUNT',     value: String(settings.players),
+          desc: dotTrackHTML(PLAYER_COUNTS, settings.players) },
+        { key: 'sep0' },
+        complexityRowDef(),
+        { key: 'chars',     label: 'CONFIGURATION',     value: '▸', isOn: tier === 'custom' },
         { key: 'sep1' },
-        { key: 'chars',     label: 'CHARACTERS',        value: charValue, isOn: diffs.length > 0 },
+        { key: 'speed',     label: 'GAME SPEED',        value: speedLabel,
+          desc: dotTrackHTML(SPEED_ORDER, settings.gameSpeed) },
+        { key: 'time',      label: 'GAME LENGTH',       value: settings.targetTime + ' min' },
         { key: 'sep2' },
-        { key: 'lotl',      label: 'LADY OF THE LAKE',  value: settings.abilities.lotl      ? 'ON' : 'OFF',
-          isOn: settings.abilities.lotl },
-        { key: 'excalibur', label: 'EXCALIBUR',         value: settings.abilities.excalibur ? 'ON' : 'OFF',
-          isOn: settings.abilities.excalibur },
+        { key: 'audio',     label: 'AUDIO',             value: '▸' },
         { key: 'sep3' },
         { key: 'setup',     label: 'ADD NAMES',         value: (() => {
             const n = preGame.seating.filter(x => x && x.trim()).length
             return n ? `${n} ▸` : '▸'
           })() },
-        { key: 'start',     label: 'START GAME',        value: '▸', isOn: true },
+        { key: 'sep4' },
+        { key: 'start',     label: 'START GAME',        value: '▸', isOn: true, bold: true },
       ]
       setBody('menu-main', `
         <div class="ov-title grad-title" style="font-family:'EnchantedLand',Georgia,serif">Avalon</div>
@@ -2118,23 +2520,51 @@ function renderOverlay() {
       `)
       hint.textContent = '[↑↓] navigate   [←→] change   [ENTER] confirm'
 
+    } else if (settings.menuPage === 'audio') {
+      const av = audioSettings.get()
+      const rowDefs = [
+        { key: 'music',    label: 'MUSIC VOLUME',    value: av.music + '%' },
+        { key: 'narrator', label: 'NARRATOR VOLUME', value: av.narrator + '%' },
+        { key: 'sep1' },
+        { key: 'back',     label: '← back',   value: '' },
+      ]
+      setBody('menu-audio', `
+        <div class="ov-title grad-title" style="font-size:56px; letter-spacing:2px">Audio</div>
+        <div class="ov-rule" style="margin:16px 0"></div>
+        <div class="menu-settings">${buildMenuHTML(rowDefs)}</div>
+      `)
+      hint.textContent = '[↑↓] select   [←→] adjust ±5%   [ESC] back'
+
     } else if (settings.menuPage === 'characters') {
       const cv = (key) => settings.characters[key]
       const rowDefs = [
-        { key: 'merlin',   label: 'Merlin',   desc: CHAR_DESC.Merlin,   value: cv('merlin')   ? 'ON' : 'OFF', isOn: cv('merlin'),   disabled: !canEnableCharacter('merlin') },
-        { key: 'percival', label: 'Percival', desc: CHAR_DESC.Percival, value: cv('percival') ? 'ON' : 'OFF', isOn: cv('percival'), disabled: !canEnableCharacter('percival') },
+        complexityRowDef(),
         { key: 'sep1' },
-        { key: 'assassin', label: 'Assassin', desc: CHAR_DESC.Assassin, value: cv('assassin') ? 'ON' : 'OFF', isOn: cv('assassin'), disabled: !canEnableCharacter('assassin') },
-        { key: 'morgana',  label: 'Morgana',  desc: CHAR_DESC.Morgana,  value: cv('morgana')  ? 'ON' : 'OFF', isOn: cv('morgana'),  disabled: !canEnableCharacter('morgana') },
-        { key: 'mordred',  label: 'Mordred',  desc: CHAR_DESC.Mordred,  value: cv('mordred')  ? 'ON' : 'OFF', isOn: cv('mordred'),  disabled: !canEnableCharacter('mordred') },
-        { key: 'oberon',   label: 'Oberon',   desc: CHAR_DESC.Oberon,   value: cv('oberon')   ? 'ON' : 'OFF', isOn: cv('oberon'),   disabled: !canEnableCharacter('oberon') },
+        { key: 'merlin',   label: 'Merlin',   desc: CHAR_DESC.Merlin,   value: cv('merlin')   ? 'ON' : 'OFF', isOn: cv('merlin'),   disabled: !canEnableCharacter('merlin'),   color: CHAR_KEY_COLOR.merlin },
+        { key: 'assassin', label: 'Assassin', desc: charDesc('Assassin'), value: cv('assassin') ? 'ON' : 'OFF', isOn: cv('assassin'), disabled: !canEnableCharacter('assassin'), color: CHAR_KEY_COLOR.assassin },
+        { key: 'mordred',  label: 'Mordred',  desc: CHAR_DESC.Mordred,  value: cv('mordred')  ? 'ON' : 'OFF', isOn: cv('mordred'),  disabled: !canEnableCharacter('mordred'),  color: CHAR_KEY_COLOR.mordred },
+        { key: 'percival', label: 'Percival', desc: CHAR_DESC.Percival, value: cv('percival') ? 'ON' : 'OFF', isOn: cv('percival'), disabled: !canEnableCharacter('percival'), color: CHAR_KEY_COLOR.percival },
+        { key: 'morgana',  label: 'Morgana',  desc: CHAR_DESC.Morgana,  value: cv('morgana')  ? 'ON' : 'OFF', isOn: cv('morgana'),  disabled: !canEnableCharacter('morgana'),  color: CHAR_KEY_COLOR.morgana },
         { key: 'sep2' },
+        { key: 'oberon',   label: 'Oberon',   desc: CHAR_DESC.Oberon,   value: cv('oberon')   ? 'ON' : 'OFF', isOn: cv('oberon'),   disabled: !canEnableCharacter('oberon'),   color: CHAR_KEY_COLOR.oberon },
+        { key: 'sep3' },
+        { key: 'lancelot',  label: 'Lancelot',  desc: CHAR_DESC['Lancelot'], value: cv('lancelot')  ? 'ON' : 'OFF', isOn: cv('lancelot'),  disabled: !canEnableCharacter('lancelot'), split: true },
+        { key: 'guinevere', label: 'Guinevere', desc: CHAR_DESC['Guinevere'],     value: cv('guinevere') ? 'ON' : 'OFF', isOn: cv('guinevere'), disabled: !canEnableCharacter('guinevere'), color: CHAR_KEY_COLOR.guinevere },
+        { key: 'sep4' },
+        { key: 'tristanIsolde', label: 'Tristan & Iseult', desc: CHAR_DESC['Tristan'], value: cv('tristanIsolde') ? 'ON' : 'OFF', isOn: cv('tristanIsolde'), disabled: !canEnableCharacter('tristanIsolde'), color: CHAR_KEY_COLOR.tristanIsolde },
+        { key: 'mark',          label: 'Mark',             desc: CHAR_DESC['Mark'],    value: cv('mark')         ? 'ON' : 'OFF', isOn: cv('mark'),         disabled: !canEnableCharacter('mark'),         color: CHAR_KEY_COLOR.mark },
+        { key: 'sep5' },
+        { key: 'lotl',      label: 'Lady of the Lake',  desc: CHAR_DESC['Lady of the Lake'], value: settings.abilities.lotl      ? 'ON' : 'OFF',
+          isOn: settings.abilities.lotl },
+        { key: 'excalibur', label: 'Excalibur',         desc: CHAR_DESC['Excalibur'],        value: settings.abilities.excalibur ? 'ON' : 'OFF',
+          isOn: settings.abilities.excalibur },
+        { key: 'sep6' },
         { key: 'back',     label: '← back',   value: '' },
       ]
       setBody('menu-chars', `
-        <div class="ov-title grad-title" style="font-size:56px; letter-spacing:2px">Characters</div>
+        <div class="ov-title grad-title" style="font-size:56px; letter-spacing:2px">Configuration</div>
         <div class="ov-rule" style="margin:16px 0"></div>
-        <div class="menu-settings">${buildMenuHTML(rowDefs)}</div>
+        <div class="menu-settings menu-settings-chars">${buildMenuHTML(rowDefs)}</div>
       `)
       hint.textContent = '[↑↓] select   [←→] toggle   [ESC] back'
     }
@@ -2142,7 +2572,7 @@ function renderOverlay() {
     // Menu rows are clickable too (mirrors keyboard navigation).
     body.querySelector('.menu-settings')?.addEventListener('click', e => {
       const row = e.target.closest('.menu-row[data-menu-key]')
-      if (row) handleMenuClick(row.dataset.menuKey)
+      if (row) handleMenuClick(row.dataset.menuKey, +row.dataset.rowIdx)
     })
 
   } else if (gs.phase === 'setup') {
@@ -2279,6 +2709,13 @@ function renderOverlay() {
       if (conEl.classList.contains('touched')) updateConf()  // restore desc from draft
     }
 
+    document.querySelectorAll('#log-victim-row .log-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#log-victim-row .log-toggle-btn').forEach(b => b.classList.remove('active'))
+        btn.classList.add('active')
+      })
+    })
+
     // ── Roster autocomplete ──────────────────────────────────────────────
     // Name column: suggest every known player from memory (plus anything typed
     // in other seats), not just the pre-entered ones. You can still type freely.
@@ -2297,12 +2734,16 @@ function renderOverlay() {
       })
       return names
     }
-    // Assassination target: good, non-Merlin players; falls back to all names.
+    // Assassination target: good players, excluding Merlin — UNLESS Guinevere is
+    // in play, in which case the real Merlin can still be the missed target (the
+    // assassin may have mislabeled them as Guinevere and still lost). Falls back
+    // to all names.
     const _getAssnTargetOptions = () => {
       const names = []
       document.querySelectorAll('[data-char-idx]').forEach(el => {
         const role = el.value.trim()
-        if (role && logTeamForRole(role) === 'good' && role.toLowerCase() !== 'merlin') {
+        const merlinOk = settings.characters.guinevere || role.toLowerCase() !== 'merlin'
+        if (role && logTeamForRole(role) === 'good' && merlinOk) {
           const nm = document.querySelector(`[data-seat-idx="${el.dataset.charIdx}"]`)?.value.trim()
           if (nm) names.push(nm)
         }
@@ -2437,14 +2878,23 @@ function renderQuests() {
     ?.classList.toggle('visible', gs.players >= 7 && (gs.phase === 'game' || gs.phase === 'assassination'))
 }
 
-// Lady of the Lake is a passive, no-input indicator: a teardrop inside the hole
-// of quests 3/4/5 (its colour tracks the number via updateArcNum). When a check
-// comes into play the circle flips to the symbol side, shimmers, then flips back,
-// and the banner prompt appears (see scheduleLotlPrompt / triggerCoinFlip).
+// Lady of the Lake and Lancelot are both passive, no-input indicators inside
+// the hole of quests 3/4/5 (colour tracks the number via updateArcNum). LotL
+// also flips the circle to its symbol side, shimmers, then flips back when a
+// check comes into play (see scheduleLotlPrompt / triggerCoinFlip); Lancelot's
+// badge just sits there as a reminder a loyalty flip happens on that quest.
+// When both are active they stack (Lancelot above, LotL below) — see the
+// #quests.lotl-on.lancelot-on CSS overrides.
 function renderLotlIndicators() {
-  // Keep the drop icons visible through assassination, alongside the quest circles.
-  const on = settings.abilities.lotl && (gs.phase === 'game' || gs.phase === 'assassination')
-  document.getElementById('quests').classList.toggle('lotl-on', on)
+  // Keep the icons visible through assassination and the win screen, alongside
+  // the quest circles. (Evil's win path skips render() entirely to keep the
+  // MERLIN DIED card's background frozen, so this was already true for evil
+  // wins by omission — including 'win' here just makes Good's path, which does
+  // call render(), match instead of resetting them.)
+  const midGame = (gs.phase === 'game' || gs.phase === 'assassination' || gs.phase === 'win')
+  const quests  = document.getElementById('quests')
+  quests.classList.toggle('lotl-on',     settings.abilities.lotl  && midGame)
+  quests.classList.toggle('lancelot-on', settings.characters.lancelot && midGame)
 }
 
 function renderLotlBanner() {
@@ -2519,6 +2969,92 @@ function dismissLotlPrompt() {
   if (gs.lotlPromptActive) { gs.lotlPromptActive = false; renderLotlBanner() }
 }
 
+// ── Lancelot loyalty flip ────────────────────────────────────────────────────
+// Shown under the quest circles AND the vote dots/hint — see #lancelot-deck.
+// "Remaining cards" tracks what's left of the Loyalty deck (starts 3 No
+// Change + 2 Switch). All 3 possible draws (Q3/Q4/Q5) show as face-down slots
+// from the start of the game; each flips in place — same rotateY 3D-flip
+// technique as the quest circles' Lady-of-the-Lake coin flip — once its draw
+// happens, just before the LotL reminder (see the scheduling in
+// resolveQuest()). No repeat, since the draw itself isn't optional (unlike
+// LotL's nag-until-voted banner).
+
+function makeLancelotSlot(i) {
+  const slot = document.createElement('div')
+  slot.className = 'lc-slot'
+  slot.innerHTML = `
+    <div class="lc-card-flipper" id="lancelot-flipper-${i}">
+      <div class="lc-card-face lc-card-front">?</div>
+      <div class="lc-card-face lc-card-back" id="lancelot-back-${i}"></div>
+    </div>`
+  return slot
+}
+
+function setLancelotBack(el, type) {
+  if (!el) return
+  el.dataset.type = type
+  // The switch arrow is stretched taller via an inner span so the card face
+  // itself (border, flip transform) stays undistorted.
+  el.innerHTML = type === 'switch' ? '<span class="lc-arrow-stretch">⇄</span>' : '✕'
+}
+
+function updateLancelotRemainingText() {
+  const el = document.getElementById('lancelot-remaining')
+  if (!el) return
+  const noneCount   = gs.lancelotDeck.filter(c => c === 'none').length
+  const switchCount = gs.lancelotDeck.filter(c => c === 'switch').length
+  el.textContent = `Remaining cards: ${noneCount} No Change, ${switchCount} Switch`
+}
+
+// Rebuilds the "remaining" text and makes sure every already-drawn slot (per
+// gs.lancelotHistory) shows flipped — used on any render, not just right
+// after a draw, e.g. after a game restart. Slots not yet drawn stay face-down.
+function renderLancelotDeck() {
+  const el = document.getElementById('lancelot-deck')
+  if (!el) return
+  const show = settings.characters.lancelot &&
+    (gs.phase === 'game' || gs.phase === 'assassination' || gs.phase === 'win')
+  el.classList.toggle('visible', show)
+  if (!show) return
+  updateLancelotRemainingText()
+  const historyEl = document.getElementById('lancelot-history')
+  if (!historyEl) return
+  const flippedCount = historyEl.querySelectorAll('.lc-card-flipper.flipped').length
+  // Rebuild from scratch if the slot count is wrong, or if the DOM shows more
+  // flips than THIS game has drawn — stale state left over from a prior game
+  // (newGame() resets gs.lancelotHistory, but never touches this DOM).
+  if (historyEl.children.length !== 3 || flippedCount > gs.lancelotHistory.length) {
+    historyEl.innerHTML = ''
+    for (let i = 0; i < 3; i++) historyEl.append(makeLancelotSlot(i))
+  }
+  for (let i = 0; i < gs.lancelotHistory.length; i++) {
+    const flipper = document.getElementById(`lancelot-flipper-${i}`)
+    if (!flipper || flipper.classList.contains('flipped')) continue
+    setLancelotBack(document.getElementById(`lancelot-back-${i}`), gs.lancelotHistory[i])
+    flipper.classList.add('flipped')
+  }
+}
+
+const LANCELOT_REVEAL_HOLD_MS = 800  // roughly matches the flip's 0.75s transition
+
+// Draws the next Loyalty card (no replacement), flips the next slot to reveal
+// it, and updates the remaining-cards text. Calls onDone once the flip has had
+// a moment to land — used to chain into the LotL reminder right after.
+function triggerLancelotFlip(qi, onDone) {
+  if (gs.phase !== 'game' || gs.currentQuest !== qi) return  // game moved on
+  const card       = gs.lancelotDeck.length ? gs.lancelotDeck.pop() : 'none'
+  const slotIndex  = gs.lancelotHistory.length
+  gs.lancelotHistory.push(card)
+  logEvent(card === 'switch' ? 'Lancelot switched' : 'Lancelot: no change')
+
+  updateLancelotRemainingText()
+  const flipper = document.getElementById(`lancelot-flipper-${slotIndex}`)
+  setLancelotBack(document.getElementById(`lancelot-back-${slotIndex}`), card)
+  if (flipper) flipper.classList.add('flipped')
+
+  setTimeout(() => { if (onDone) onDone() }, LANCELOT_REVEAL_HOLD_MS)
+}
+
 function renderVoteTrack() {
   for (let i = 0; i < 5; i++) {
     const dot = document.getElementById(`vd-${i}`)
@@ -2526,11 +3062,34 @@ function renderVoteTrack() {
   }
 }
 
+// Character-panel (sidebar) descriptions only — the Characters menu's toggle
+// rows read CHAR_DESC directly and are deliberately unaffected by this.
 function charDesc(role) {
   const c = settings.characters
   if (role === 'Merlin')   return c.mordred ? 'Knows all Evil except Mordred' : 'Knows all Evil'
   if (role === 'Percival') return c.morgana ? 'Sees Merlin and Morgana' : 'Sees Merlin'
+  if (role === 'Assassin') return c.guinevere ? 'Tries to identify Merlin or Guinevere' : 'Tries to identify Merlin'
+  if (role === 'Tristan')  return c.mark ? 'Sees Iseult and Mark'  : 'Sees Iseult'
+  if (role === 'Iseult')   return c.mark ? 'Sees Tristan and Mark' : 'Sees Tristan'
   return CHAR_DESC[role] || ''
+}
+
+// Fallback for when the .cp-spacer centering (see index.html) still isn't
+// enough — a big roster (many players, high complexity) can outgrow the
+// panel's height even with both spacers bottomed out at 0. Re-measures the
+// content's natural (--cp-scale: 1) height against what's actually available
+// and, only if it still overflows, shrinks font-size/padding just enough to
+// fit. Runs synchronously in the same task as the class changes above, so
+// any expand/collapse transition already in flight animates straight to the
+// corrected target instead of overshooting and snapping back.
+const CP_MIN_SCALE = 0.72
+function fitCharPanelText(panel) {
+  if (!gs.panelOpen) return
+  panel.style.setProperty('--cp-scale', 1)
+  const natural   = panel.scrollHeight
+  const available = panel.clientHeight
+  const scale = natural > available ? Math.max(CP_MIN_SCALE, available / natural) : 1
+  panel.style.setProperty('--cp-scale', scale)
 }
 
 function renderCharPanel() {
@@ -2590,17 +3149,19 @@ function renderCharPanel() {
 
     fillSection('good-chars', roles.good)
 
-    if (isMorganaAssnMerged()) {
-      const evilEl = document.getElementById('evil-chars')
-      evilEl.innerHTML = ''
-      addEntry(evilEl, 'Morgana/Assn', ROLE_COLOR['Morgana'],
-        [charDesc('Morgana'), charDesc('Assassin')])
-      for (const role of roles.evil.filter(r => r !== 'Morgana' && r !== 'Assassin')) {
+    // buildTeamRoles() already collapses Assassin into 'Mordred (=Assn)' or
+    // 'Morgana (=Assn)' when they share a physical card — just special-case
+    // the description lookup here.
+    const evilEl = document.getElementById('evil-chars')
+    evilEl.innerHTML = ''
+    for (const role of roles.evil) {
+      if (role === 'Mordred (=Assn)' || role === 'Morgana (=Assn)') {
+        const partner = role === 'Mordred (=Assn)' ? 'Mordred' : 'Morgana'
+        addEntry(evilEl, role, ROLE_COLOR[partner], [charDesc(partner), charDesc('Assassin')])
+      } else {
         const hasDesc = role !== 'Minion' && charDesc(role)
         addEntry(evilEl, role, ROLE_COLOR[role] || THEME.cream, hasDesc ? [charDesc(role)] : [])
       }
-    } else {
-      fillSection('evil-chars', roles.evil)
     }
 
     // Abilities section
@@ -2655,6 +3216,8 @@ function renderCharPanel() {
 
   const tabHint = document.getElementById('char-tab-hint')
   if (tabHint) tabHint.textContent = gs.panelOpen ? '[C] hide descriptions' : '[C] expand'
+
+  fitCharPanelText(panel)
 }
 
 function renderPhaseStatus() {
@@ -2679,7 +3242,7 @@ function renderHint() {
         '<span class="hint-key">[S] pass / [F] fail</span>'
     } else {
       el.innerHTML =
-        `<span class="hint-action">Input outcome of quest ${gs.currentQuest + 1}</span>` +
+        `<span class="hint-action">Input outcome of Quest ${gs.currentQuest + 1}</span>` +
         '<span class="hint-key">[S] success / [F] fail</span>'
     }
   } else if (gs.phase === 'assassination') {
@@ -2786,9 +3349,10 @@ function playWinReveal(team) {
 
   // verdict text now starts with the bats (delay 0) and animates longer — it
   // was delayed 1000ms with a 1500ms grow, so a 2500ms grow finishes at the
-  // same moment. Then the hint.
+  // same moment. Then the hint. Good has no bat swarm to wait for, so its
+  // title starts much sooner.
   const titleEnd   = 2500
-  const startDelay = 1000
+  const startDelay = bats ? 1000 : 300
   title.animate(
     [{ opacity: 0, transform: 'scale(0.25)', filter: 'blur(6px)' },
      { opacity: 1, transform: 'scale(1)',    filter: 'blur(0px)' }],
@@ -2830,6 +3394,17 @@ function buildBatSwarm(layer, EASE, FLIGHT_EASE, rand, N, pace) {
   flights.forEach(([el, kf, opt]) => el.animate(kf, opt))
 }
 
+// Who physically reveals their card + what they're trying to identify — both
+// depend on the current character config (merge partner, Guinevere).
+function assassinRevealText() {
+  const roles    = buildTeamRoles(settings.players, settings.characters)
+  const revealer = roles.evil.includes('Mordred (=Assn)') ? 'Mordred'
+                 : roles.evil.includes('Morgana (=Assn)') ? 'Morgana'
+                 : 'Assassin'
+  const target = settings.characters.guinevere ? 'either Merlin or Guinevere' : 'Merlin'
+  return `${revealer}, reveal your card and identify ${target}.`
+}
+
 function renderAssassinationArea() {
   const header    = document.getElementById('assassination-header')
   const voteArea  = document.getElementById('vote-area')
@@ -2856,8 +3431,8 @@ function renderAssassinationArea() {
           <span class="assn-title-glyph">${makeDagger().outerHTML}</span>
         </div>
         <div class="assn-body">
-          <div class="grad-line">Keep character cards hidden.</div>
-          <div class="grad-line">Assassin may reveal their card and choose a target.</div>
+          <div class="assn-line">Keep character cards hidden.</div>
+          <div class="assn-line">${assassinRevealText()}</div>
         </div>
       `
       void header.offsetHeight  // force reflow so opacity/transform transitions start from initial values
@@ -2985,6 +3560,23 @@ function closeQuitPrompt() {
   document.getElementById('quit-modal').classList.add('hidden')
 }
 
+// Abandon the current game and go back to the main menu — deliberately does
+// NOT touch gameLogs at all (no init/save), unlike the normal end-of-game
+// flow in _submitLog(). Settings (characters, player count, etc.) and the
+// seating table carry over; only the in-progress game state resets.
+function returnToMainMenu() {
+  closeQuitPrompt()
+  nightNarrator.stop()
+  clearTimeout(_nightNarrationTimer)
+  preGame.firstLeader = null   // re-roll next game; seating persists for the table
+  settings.menuRow  = 0
+  settings.menuPage = 'main'
+  gs = newGame(settings.players)
+  resetTimerBar()
+  music.fadeToFolder('Main menu')
+  render()
+}
+
 document.addEventListener('keydown', e => {
   if (e.repeat) return
 
@@ -2992,6 +3584,7 @@ document.addEventListener('keydown', e => {
   if (quitPromptOpen) {
     e.preventDefault()
     if (e.key === 'q' || e.key === 'Q' || e.key === 'Enter') window.close()
+    else if (e.key === 'm' || e.key === 'M') returnToMainMenu()
     else if (e.key === 'Escape') closeQuitPrompt()
     return
   }
@@ -3007,7 +3600,14 @@ document.addEventListener('keydown', e => {
     if (gs.phase === 'menu' && settings.menuPage === 'characters') {
       e.preventDefault()
       settings.menuPage = 'main'
-      settings.menuRow  = 3
+      settings.menuRow  = 2
+      renderOverlay()
+      return
+    }
+    if (gs.phase === 'menu' && settings.menuPage === 'audio') {
+      e.preventDefault()
+      settings.menuPage = 'main'
+      settings.menuRow  = 5
       renderOverlay()
       return
     }
@@ -3074,25 +3674,47 @@ document.addEventListener('keydown', e => {
   if (gs.phase === 'menu') {
     const numMap = {'5':5,'6':6,'7':7,'8':8,'9':9,'0':10}
 
+    // TEST RIG: [N] plays the resolved night-phase narration script for
+    // whatever's currently set in Players/Characters. [Shift+N] stops it.
+    if (e.key === 'n') {
+      const script = resolveNightScript(settings.characters, settings.players)
+      console.log('[night narration]', settings.players, 'players:',
+        script.map(s => s.gap != null ? `${s.file} (+${s.gap}ms)` : s.file))
+      nightNarrator.play(script)
+      return
+    }
+    if (e.key === 'N') {
+      nightNarrator.stop()
+      return
+    }
+
+    // ↑/↓ row navigation is shared across both menu pages — moveMenuRow()
+    // already knows which page it's on. See menuRepeatStart() for the
+    // accelerating auto-repeat; the OS's own repeat is ignored (e.repeat).
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (e.repeat) return
+      const delta = e.key === 'ArrowUp' ? -1 : 1
+      moveMenuRow(delta)
+      menuRepeatStart(e.key, delta)
+      return
+    }
+
     if (settings.menuPage === 'main') {
-      const SELECTABLE = 8  // players, speed, length, characters, lotl, excalibur, setup, start
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        settings.menuRow = (settings.menuRow - 1 + SELECTABLE) % SELECTABLE
-        renderOverlay()
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        settings.menuRow = (settings.menuRow + 1) % SELECTABLE
-        renderOverlay()
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
         applyMenuChange(settings.menuRow, e.key === 'ArrowRight' ? 1 : -1)
       } else if (numMap[e.key] !== undefined) {
         setMenuPlayers(numMap[e.key])
       } else if (e.key === 'Enter') {
-        if (settings.menuRow === 3) {
-          // Open characters submenu
+        if (settings.menuRow === 2) {
+          // Open configuration submenu
           settings.menuPage = 'characters'
+          settings.menuRow  = 0
+          renderOverlay()
+        } else if (settings.menuRow === 5) {
+          // Open the audio submenu
+          settings.menuPage = 'audio'
           settings.menuRow  = 0
           renderOverlay()
         } else if (settings.menuRow === 6) {
@@ -3105,45 +3727,27 @@ document.addEventListener('keydown', e => {
         }
       }
 
+    } else if (settings.menuPage === 'audio') {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        applyMenuChange(settings.menuRow, e.key === 'ArrowRight' ? 1 : -1)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        applyMenuChange(settings.menuRow, 1)
+      }
+
     } else if (settings.menuPage === 'characters') {
-      const SELECTABLE = 7  // merlin, percival, assassin, morgana, oberon, mordred, back
-      if (e.key === 'ArrowUp') {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
-        settings.menuRow = (settings.menuRow - 1 + SELECTABLE) % SELECTABLE
-        renderOverlay()
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        settings.menuRow = (settings.menuRow + 1) % SELECTABLE
-        renderOverlay()
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Enter') {
+        applyMenuChange(settings.menuRow, e.key === 'ArrowRight' ? 1 : -1)
+      } else if (e.key === 'Enter') {
         e.preventDefault()
         applyMenuChange(settings.menuRow, 1)
       }
     }
 
   } else if (gs.phase === 'night') {
-    if (e.key === 'Enter') {
-      gs.nightSecs = gs.totalSecs
-      gs.phase = 'game'
-      sidebarAnimatePending = true  // slide in Quest 1 target row
-      sidebarPop = { type: 'night' }  // pop the night time that just froze
-      gameLogs.recordNightEnd(gs.nightSecs)
-
-      // Carry-over: redistribute night spare/overtime to all quest discussions proportionally
-      const nightDelta = calcNightExpected() - gs.nightSecs
-      if (nightDelta !== 0) {
-        for (let j = 0; j < 5; j++) {
-          gs.questAllotted[j] = Math.max(0,
-            gs.questAllotted[j] + nightDelta * (QUEST_ALLOTTED_BASE[j] / QUEST_ALLOTTED_SUM)
-          )
-        }
-      }
-
-      resetTimerBar()
-      music.playPreloaded('a', { fallbackFolder: 'Round 1' })
-      logEvent('Quest 1 begins')
-      render()
-    }
+    if (e.key === 'Enter') endNightPhase()
 
   } else if (gs.phase === 'leader') {
     if (e.key === 'Enter') {
@@ -3254,6 +3858,15 @@ document.addEventListener('keydown', e => {
   }
 })
 
+// Releasing the held direction stops the accelerating menu-row repeat. Guard
+// on which key was actually driving it so releasing a since-abandoned key
+// (e.g. switched from ↓ to ↑ mid-hold) can't cut the new direction short.
+document.addEventListener('keyup', e => {
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.key === _menuRepeatKey) {
+    menuRepeatStop()
+  }
+})
+
 function _submitLog() {
   // Hard block: the same player name entered in two seats.
   if (hasDuplicateNames()) {
@@ -3279,6 +3892,8 @@ function _submitLog() {
   if (balEl?.classList.contains('touched'))  gameLogs.setBalance(parseInt(balEl.value))
   if (conEl?.classList.contains('touched'))  gameLogs.setAssassinConfidence(parseInt(conEl.value))
   gameLogs.setAssassinationTarget(targetEl?.value?.trim() || '')
+  const victimBtn = document.querySelector('#log-victim-row .log-toggle-btn.active')
+  if (victimBtn) gameLogs.setAssassinationVictim(victimBtn.dataset.victim)
   // Seating + first leader (optional) — derives the initial LotL token holder
   syncSeatsToPreGame()
   if (preGame.seating.some(Boolean)) gameLogs.setSeating(preGame.seating.slice(0, gs.players))
@@ -3293,7 +3908,7 @@ function _submitLog() {
   settings.menuPage = 'main'
   gs = newGame(gs.players)
   resetTimerBar()
-  music.fadeToFolder('Main menu')
+  music.queueAfterCurrent('Main menu')
   render()
 }
 
@@ -3338,6 +3953,18 @@ function resolveQuest(result) {
   logEvent(`Q${i + 1} ${result}`)
 
   if (gs.successCount >= 3) {
+    if (!settings.characters.assassin) {
+      // No Merlin/Assassin in play (Vanilla, or a Custom build with Assassin
+      // off) — nobody to hunt, so 3 successes is an outright Good win.
+      gs.phase = 'win'
+      gameLogs.finalizeGoodWin(gs.totalSecs, 'no-assassin')
+      gameLogs.save()
+      music.fadeToFolder('Good songs')   // no preload exists for this transition
+      logEvent('Good wins')
+      render()
+      playWinReveal('good')
+      return
+    }
     gs.phase     = 'assassination'
     gs.assnStart = gs.totalSecs
     music.playPreloaded('a', { fallbackFolder: 'Assassination' })
@@ -3367,9 +3994,13 @@ function resolveQuest(result) {
   logEvent(`Quest ${gs.currentQuest + 1} begins`)
   render()
 
-  // Quests 3/4/5 (index 2/3/4) each carry a Lady-of-the-Lake check at their start.
-  if (settings.abilities.lotl && gs.currentQuest >= 2) {
-    scheduleLotlPrompt(gs.currentQuest)
+  // Quests 3/4/5 (index 2/3/4): Lancelot's loyalty flip (if in play) resolves
+  // first, then the Lady-of-the-Lake reminder follows right after.
+  if (gs.currentQuest >= 2) {
+    const qi = gs.currentQuest
+    const showLotl = () => { if (settings.abilities.lotl) scheduleLotlPrompt(qi) }
+    if (settings.characters.lancelot) setTimeout(() => triggerLancelotFlip(qi, showLotl), 1000)
+    else showLotl()
   }
 }
 

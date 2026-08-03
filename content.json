@@ -6,6 +6,14 @@
     "Morgana":  "Appears as Merlin to Percival",
     "Oberon":   "Unknown to Evil and doesn't know them",
     "Mordred":  "Hidden from Merlin",
-    "Lady of the Lake": "Checks player's true loyalty"
+    "Lady of the Lake": "Checks player's true loyalty",
+    "Excalibur": "Checks and swaps mission card",
+    "Good Lancelot": "Might switch loyalty",
+    "Evil Lancelot": "Might switch loyalty; must fail quests",
+    "Lancelot": "Might switch loyalty; must fail when evil",
+    "Guinevere": "Sees both Lancelots",
+    "Tristan": "See each other and Mark",
+    "Iseult": "See each other and Mark",
+    "Mark": "Third wheels Tristan & Iseult"
   }
 }

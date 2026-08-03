@@ -7,6 +7,8 @@
     @font-face { font-family: 'EnchantedLand';  src: url('fonts/Enchanted Land.otf'); }
     @font-face { font-family: 'Franken';        src: url('fonts/CATFranken-Deutsch.ttf'); }
     @font-face { font-family: 'JetBrains Mono'; src: url('fonts/JetBrainsMono-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; }
+    @font-face { font-family: 'JetBrains Mono'; src: url('fonts/JetBrainsMono-Bold.woff2')    format('woff2'); font-weight: 700; font-style: normal; }
+    @font-face { font-family: 'JetBrains Mono'; src: url('fonts/JetBrainsMono-Italic.woff2')  format('woff2'); font-weight: 400; font-style: italic; }
     @font-face { font-family: 'Cormorant Garamond'; src: url('fonts/CormorantGaramond-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; }
     @font-face { font-family: 'Cinzel Decorative';  src: url('fonts/CinzelDecorative-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; }
     @font-face { font-family: 'OptimusPrinceps';    src: url('fonts/OptimusPrincepsSemiBold.ttf') format('truetype'); font-weight: 400; font-style: normal; }
@@ -254,6 +256,11 @@
     #quest-area.assn-pushed #quests {
       transform: translateY(132px);   /* ~60% of the former 220px push */
     }
+    /* Lancelot deck rides along with the same push, so it stays put relative
+       to the quest circles instead of getting left behind above them. */
+    #quest-area.assn-pushed #lancelot-deck {
+      transform: translateY(132px);
+    }
 
     /* Arc positioning wrapper — transform lives here, not on the animated .q-wrap */
     .q-arc-slot { display: flex; }
@@ -380,6 +387,31 @@
     /* Flat fill tracking the number's colour (set on the badge in updateArcNum) */
     .lotl-drop-svg path { fill: currentColor; }
 
+    /* Lancelot's "switch" badge — same hole as the LotL teardrop, hidden unless
+       Lancelot is on. Sits in the exact same spot when LotL is off; when both
+       are on, the two stack (Lancelot above, LotL below — see the compound
+       selectors below). */
+    .lancelot-badge {
+      position: absolute;
+      top: 50%;
+      left: 70px;   /* inside the hole, left of the number — matches .lotl-badge */
+      width: 22px;
+      height: 22px;
+      transform: translate(-50%, -50%) scaleY(1.6);
+      display: none;
+      pointer-events: none;
+      z-index: 4;
+      font-size: 19px;
+      line-height: 22px;
+      text-align: center;
+      transition: color 0.5s ease 0.5s;   /* light-up synced with the number */
+    }
+    #quests.lancelot-on .lancelot-badge { display: block; }
+
+    /* Both active at once: stack instead of overlapping (Lancelot above, LotL below) */
+    #quests.lotl-on.lancelot-on .lancelot-badge { transform: translate(-50%, -50%) translateY(-19px) scaleY(1.6); }
+    #quests.lotl-on.lancelot-on .lotl-badge     { transform: translate(-50%, -50%) translateY(19px); }
+
     /* Quest 4 "two fails required" arced label (7+ players) — static, above the circle */
     .q4-twofail {
       position: absolute;
@@ -462,6 +494,87 @@
       transform: translateX(-50%) translateY(0);
     }
 
+    /* ─── LANCELOT LOYALTY DECK ──────────────────────────── */
+    /* Sits under the quest circles AND the vote dots/hint text, above the
+       fixed-bottom quote scroll. "Remaining cards" tracks what's left in the
+       Loyalty deck (starts 3 No Change + 2 Switch); a history row keeps every
+       draw so far, left to right (up to 3 by Q5), each in a portrait card. */
+    /* display:none (not just opacity) when hidden, so it doesn't reserve flex
+       gap space in #quest-area for games where Lancelot isn't in play. */
+    #lancelot-deck {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      pointer-events: none;
+      transition: transform 0.7s ease;   /* matches #quests' push transition */
+    }
+    #lancelot-deck.visible { display: flex; }
+
+    .lc-remaining {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--dim);
+    }
+
+    .lc-history {
+      display: flex;
+      gap: 10px;
+      min-height: 72px;
+    }
+
+    /* All 3 slots exist from the start, face-down, and flip in place (same
+       rotateY 3D-flip technique as the quest circles' Lady-of-the-Lake coin
+       flip) once their draw happens. */
+    .lc-slot {
+      width: 48px;
+      height: 72px;
+      flex-shrink: 0;
+      perspective: 500px;
+    }
+
+    .lc-card-flipper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+      transition: transform 0.75s ease;
+    }
+    .lc-card-flipper.flipped { transform: rotateY(180deg); }
+
+    .lc-card-face {
+      position: absolute;
+      inset: 0;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--stone);
+      border-radius: 6px;
+      background: var(--bg1);
+      font-family: 'Franken', Georgia, serif;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .lc-card-front {
+      color: var(--dim);
+      font-size: 20px;
+    }
+
+    .lc-card-back {
+      background: var(--coin);   /* same coin-face color as an active quest circle */
+      transform: rotateY(180deg);
+      color: var(--accent);
+      font-size: 32px;
+    }
+    /* Stretch just the glyph, not the card face itself (which still needs its
+       own rotateY for the flip and shouldn't get visually distorted). */
+    .lc-arrow-stretch { display: inline-block; transform: scaleY(1.6); }
+
     /* ─── VOTE TRACK ─────────────────────────────────────── */
 
     #vote-area {
@@ -508,9 +621,9 @@
       gap: 4px;
     }
     /* During assassination the guide drops to the same low spot as the win-reveal
-       hint (matches #bat-hint), instead of sitting under the pushed-down quests. */
+       hint (matches #bat-hint and .death-hint — all three share this position). */
     #hint.hint-bottom {
-      position: fixed; bottom: 22%; left: 50%; transform: translateX(-50%);
+      position: fixed; bottom: 33%; left: 50%; transform: translateX(-50%);
       transition: left 0.35s ease;
     }
     .hint-action {
@@ -733,26 +846,54 @@
     /* ─── CHARACTER PANEL (right) ────────────────────────── */
 
     #char-panel {
+      --cp-scale: 1;
       width: 200px;
       flex-shrink: 0;
       background: var(--bg1);
       border-left: 2px solid var(--side-border);
       display: flex;
       flex-direction: column;
-      padding-top: 160px;
       overflow: hidden;
       transition: width 0.35s ease;
       position: relative;
       z-index: 10;
     }
 
+    /* Vertically centers the title/roster/hint block: the top spacer caps at
+       122px (the old fixed padding-top, so a short roster looks unchanged),
+       the bottom one is uncapped — once the top spacer hits its cap, flexbox's
+       own space-distribution gives the rest to the bottom, so the block just
+       centers itself as content grows past that point. No JS needed for this
+       part; see fitCharPanelText() in renderer.js for the font-scale fallback
+       that kicks in once centering alone can't make everything fit.  */
+    .cp-spacer   { flex: 1 1 0; min-height: 0; }
+    .cp-spacer-top { max-height: 122px; }
+
+    #cp-title {
+      flex-shrink: 0;
+      text-align: center;
+      font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+      font-style: italic;
+      font-size: 14px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted-gold);
+      padding: 0 12px 14px;
+    }
+
     #char-panel.expanded { width: 400px; }
+    /* --cp-scale (set by fitCharPanelText() in renderer.js) shrinks these
+       together, only once a big roster still overflows after centering has
+       already pushed the top spacer to its floor. */
     #char-panel.expanded .cp-ability-name,
     #char-panel.expanded .cp-name {
-      font-size: 19px;
+      font-size: calc(19px * var(--cp-scale));
     }
     #char-panel.expanded .cp-desc {
-      font-size: 21px;
+      font-size: calc(21px * var(--cp-scale));
+    }
+    #char-panel.expanded .cp-entry {
+      padding-block: calc(8px * var(--cp-scale));
     }
 
     .cp-entry {
@@ -844,6 +985,11 @@
       flex-direction: column;
       gap: 2px;
     }
+    /* Wider than the main menu — the Characters rows carry longer inline
+       descriptions (e.g. Lancelot's) that otherwise wrap to a second line. */
+    .menu-settings-chars {
+      width: 720px;
+    }
 
     .menu-sep {
       height: 1px;
@@ -884,8 +1030,26 @@
       background: rgba(184, 124, 40, 0.08);
     }
 
+    .menu-row.bold .menu-row-label {
+      font-weight: 700;
+    }
+
     .menu-row.disabled {
       color: var(--stone);
+    }
+    /* Team-colored labels (inline style) still show through when disabled —
+       just dimmed via opacity so the row still reads as "unavailable". */
+    .menu-row.disabled .menu-row-label {
+      opacity: 0.45;
+    }
+
+    /* Lancelot's name: hard top/bottom split, good-blue over evil-red — one
+       row covers both sides, so no single team color fits. */
+    .lc-half-color {
+      background-image: linear-gradient(180deg, var(--good-txt) 50%, var(--evil-txt) 50%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
 
     .menu-row.info {
@@ -899,6 +1063,38 @@
       letter-spacing: 0.5px;
       margin-left: 10px;
       text-transform: none;
+    }
+
+    /* Complexity row: a small pip per tier (Vanilla→Legendary) — solid where
+       that tier is offered at the current player count, glowing on whichever
+       one is currently active. Doubles as "how many levels exist here". */
+    .complexity-track {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      vertical-align: middle;
+    }
+    /* "Quest coin" palette — unavailable = --stone (the quest ring's dark
+       track), available = --coin lifted a few shades so it reads distinctly
+       against stone at dot scale (the true --coin hex sits almost on top of
+       --stone in brightness). */
+    .complexity-pip {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #181818;
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+    .complexity-pip.available {
+      background: #4a3826;
+      border-color: rgba(220,200,120,0.28);
+    }
+    .complexity-pip.current {
+      /* Same size as every other pip — color/glow only, so switching tiers
+         never nudges the pips that follow. */
+      background: var(--accent-brt);
+      border-color: var(--accent-brt);
+      box-shadow: 0 0 6px var(--accent);
     }
 
     .menu-row-value {
@@ -1116,6 +1312,13 @@
       line-height: 1.5;
       text-align: center;
     }
+    /* Plain solid color, deliberately NOT .grad-line — the reveal line's length
+       (and thus its line count) depends on Guinevere/merge state, and a
+       vertical gradient clipped across 2 wrapped lines bands badly. */
+    .assn-line {
+      line-height: 1.15;
+    }
+    .assn-line + .assn-line { margin-top: 0.45em; }
 
 
     .ov-title {
@@ -1339,7 +1542,7 @@
 
     .death-hint {
       position: absolute;
-      bottom: 22%; left: 50%;
+      bottom: 33%; left: 50%;
       transform: translateX(-50%);
       transition: left 0.35s ease;
       font-family: 'JetBrains Mono', monospace;
@@ -1384,7 +1587,7 @@
     #bat-swarm.evil .bat-title { color: #a82040;         text-shadow: 0 0 26px rgba(168,32,64,.45), 0 0 6px rgba(0,0,0,.9); }
     #bat-swarm.good .bat-title { color: var(--good-txt); text-shadow: 0 0 26px rgba(44,88,200,.5),   0 0 6px rgba(0,0,0,.9); }
     #bat-hint {
-      position: absolute; bottom: 22%; left: 50%; transform: translateX(-50%);
+      position: absolute; bottom: 33%; left: 50%; transform: translateX(-50%);
       font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 1px;
       color: var(--dim); opacity: 0; transition: left 0.35s ease;
     }
@@ -1602,6 +1805,26 @@
       text-align: center;
     }
 
+    .log-toggle-row {
+      display: flex;
+      gap: 10px;
+    }
+    .log-toggle-btn {
+      flex: 1;
+      padding: 8px 0;
+      background: transparent;
+      border: 1px solid var(--stone);
+      color: var(--dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .log-toggle-btn:hover { border-color: var(--accent-dim); color: var(--cream); }
+    .log-toggle-btn.active { background: var(--stone); border-color: var(--accent); color: var(--accent); }
+
     .log-select {
       width: 100%;
       background: transparent;
@@ -1700,7 +1923,7 @@
     .leader-settle { animation: leader-settle 0.14s ease-out; }
 
     .leader-title { font-size: 108px; letter-spacing: 4px; }
-    .leader-pick  { margin: 40px 0 8px; }
+    .leader-pick  { margin: 20px 0 8px; }
 
     /* The randomized name/number — the focal element, deliberately huge. */
     .leader-input-wrap { width: 620px; max-width: 620px; margin: 0 auto; }
@@ -1720,16 +1943,18 @@
     .leader-value.shuffling { color: var(--cream);      text-shadow: none; }
     .leader-value.locked-in { color: var(--accent-brt); text-shadow: none; }
 
+    /* Always in the flow (visibility, not display) so it reserves its own
+       space above the input — showing/hiding it never shifts anything below. */
     .leader-warning {
-      display: none;
+      visibility: hidden;
       color: var(--evil-txt);
       font-family: 'JetBrains Mono', monospace;
       font-size: 16px;
       letter-spacing: 1px;
       text-align: center;
-      margin-top: 20px;
+      margin-bottom: 12px;
     }
-    .leader-warning.show { display: block; }
+    .leader-warning.show { visibility: visible; }
     .leader-btns { margin-top: 34px; }
     .leader-btns .log-submit-btn { margin-top: 12px; width: 620px; font-size: 15px; padding: 14px 0; }
 
@@ -1858,14 +2083,21 @@
         </div>
         <div id="hint"></div>
       </div>
+      <div id="lancelot-deck">
+        <div class="lc-history" id="lancelot-history"></div>
+        <div class="lc-remaining" id="lancelot-remaining"></div>
+      </div>
     </div>
     </div><!-- #center-col -->
 
     <div id="char-panel">
+      <div class="cp-spacer cp-spacer-top"></div>
+      <div id="cp-title">Configuration</div>
       <div id="good-chars"></div>
       <div id="evil-chars"></div>
       <div id="ability-chars" class="hidden"></div>
       <div id="char-tab-hint">[C] show descriptions</div>
+      <div class="cp-spacer"></div>
     </div>
   </div>
 </div>
@@ -1896,6 +2128,7 @@
   <div class="quit-box">
     <div class="quit-title">Quit to desktop?</div>
     <div class="quit-hint">[Q] or [ENTER]&nbsp;&nbsp;Quit</div>
+    <div class="quit-hint">[M] Return to main menu</div>
     <div class="quit-hint">[ESC] Return</div>
   </div>
 </div>

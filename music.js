@@ -3,11 +3,13 @@
 const path = require('path')
 const fs   = require('fs')
 const { pathToFileURL } = require('url')
+const audioSettings      = require('./audioSettings')
 
 class MusicPlayer {
   constructor() {
+    this._volume = audioSettings.get().music / 100
     this.a = new Audio()
-    this.a.volume = 0.10
+    this.a.volume = this._volume
     this.a.addEventListener('ended', () => this._onMainEnded())
 
     this.folder         = null
@@ -76,11 +78,17 @@ class MusicPlayer {
 
   // ── Continuous playback ───────────────────────────────────────────────────
 
+  // Live volume control (0-100), persisted by the caller via audioSettings.
+  setVolume(pct) {
+    this._volume = Math.max(0, Math.min(100, pct)) / 100
+    if (!this._fade) this.a.volume = this._volume  // mid-fade, let it finish; it'll pick this up next track
+  }
+
   playFolder(folderName) {
     this.folder       = folderName
     this._oneShotNext = null
     clearInterval(this._fade)
-    this.a.volume = 0.10
+    this.a.volume = this._volume
     this.playlist = this._buildPlaylist(folderName)
     this._advance()
   }
@@ -103,6 +111,12 @@ class MusicPlayer {
     }
     if (!this.playlist.length) this.playlist = this._buildPlaylist(this.folder)
     this._advance()
+  }
+
+  // Let the current track finish playing naturally, then transition to
+  // folderName (fading in) once it ends — instead of cutting it short.
+  queueAfterCurrent(folderName) {
+    this._oneShotNext = folderName
   }
 
   fadeToFolder(folderName, ms = 1800) {
@@ -182,7 +196,7 @@ class MusicPlayer {
         this.playlist     = opts.oneShot ? [] : this._buildPlaylist(folderToPlay)
 
         this.a.src    = urlToPlay  // already buffered → near-instant start
-        this.a.volume = 0.10
+        this.a.volume = this._volume
         this.a.play().catch(e => console.warn('Audio:', e.message))
         if (this.onTrackChange) this.onTrackChange()
 

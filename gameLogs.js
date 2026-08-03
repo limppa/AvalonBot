@@ -36,6 +36,7 @@ function init(settings, preGame) {
       balance:             null,  // -3 (evil-favored) → 0 → +3 (good-favored)
       assassinConfidence:  null,  // 1 (total guess) → 5 (certain); only when assassination happened
       assassinationTarget: null,  // good character targeted (if not Merlin)
+      assassinationVictim: null,  // 'merlin' | 'guinevere' — only asked when Guinevere is in play
       seating:             [],    // player names in clockwise seat order (optional)
       firstLeader:         null,  // name, or seat number (1..N) if no names entered
       lotlHolder:          null,  // derived: player counter-clockwise of first leader
@@ -81,9 +82,9 @@ function recordAssassination(assnSecs) {
   _log.assassination = { seconds: Math.round(assnSecs) }
 }
 
-function finalizeGoodWin(totalSeconds) {
+function finalizeGoodWin(totalSeconds, reason = 'merlin-survived') {
   if (!_log) return
-  _log.outcome = { winner: 'good', reason: 'merlin-survived', totalSeconds: Math.round(totalSeconds) }
+  _log.outcome = { winner: 'good', reason, totalSeconds: Math.round(totalSeconds) }
 }
 
 function finalizeEvilWin(reason, totalSeconds) {
@@ -95,6 +96,11 @@ function finalizeEvilWin(reason, totalSeconds) {
 function setAssassinationTarget(characterName) {
   if (!_log) return
   _log.optional.assassinationTarget = characterName || null
+}
+
+function setAssassinationVictim(value) {
+  if (!_log) return
+  _log.optional.assassinationVictim = value || null
 }
 
 function setBalance(value) {
@@ -170,6 +176,7 @@ module.exports = {
   finalizeGoodWin,
   finalizeEvilWin,
   setAssassinationTarget,
+  setAssassinationVictim,
   setBalance,
   setAssassinConfidence,
   setSeating,

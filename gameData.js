@@ -56,8 +56,38 @@ const CHAR_DESC = require('./content.json').characterDescriptions
 
 // ── Game speed ───────────────────────────────────────────────────────────────
 
-const SPEED_ORDER  = ['speedrun', 'fast', 'normal', 'slow', 'saga']
+const SPEED_ORDER  = ['saga', 'slow', 'normal', 'fast', 'speedrun']
 const SPEED_LABELS = { saga: 'Saga', slow: 'Slow', normal: 'Normal', fast: 'Fast', speedrun: 'Speedrun' }
+
+// ── Complexity presets ────────────────────────────────────────────────────────
+// See "presets for characters and tokens.md". Vanilla (nothing named) and
+// Normal (= the per-player-count default formula in renderer.js) are the same
+// shape at every player count, so they're generated rather than tabulated here
+// — see tierPreset() in renderer.js. This table only holds the tiers that
+// deviate from that formula, and only for the player counts the design note
+// has actually filled in; other counts/tiers simply aren't offered yet.
+const COMPLEXITY_ORDER  = ['vanilla', 'easy', 'normal', 'advanced', 'veteran', 'legendary']
+const COMPLEXITY_LABELS = { vanilla: 'Vanilla', easy: 'Easy', normal: 'Normal', advanced: 'Advanced', veteran: 'Veteran', legendary: 'Legendary' }
+
+const COMPLEXITY_PRESETS = {
+  8: {
+    advanced:  { chars: ['merlin', 'assassin', 'percival', 'tristanIsolde', 'morgana', 'mordred', 'mark'], abilities: ['lotl'] },
+    veteran:   { chars: ['merlin', 'assassin', 'percival', 'lancelot', 'guinevere', 'morgana', 'mordred'], abilities: ['lotl', 'excalibur'] },
+    legendary: { chars: ['merlin', 'assassin', 'percival', 'lancelot', 'tristanIsolde', 'morgana', 'mordred'], abilities: ['lotl', 'excalibur'] },
+  },
+  9: {
+    easy:      { chars: ['merlin', 'assassin', 'percival', 'morgana', 'mordred'], abilities: [] },
+    advanced:  { chars: ['merlin', 'assassin', 'percival', 'tristanIsolde', 'morgana', 'mordred', 'mark'], abilities: [] },
+    veteran:   { chars: ['merlin', 'assassin', 'percival', 'lancelot', 'guinevere', 'morgana', 'mordred'], abilities: ['lotl', 'excalibur'] },
+    legendary: { chars: ['merlin', 'assassin', 'percival', 'lancelot', 'guinevere', 'tristanIsolde', 'morgana', 'mordred'], abilities: ['lotl', 'excalibur'] },
+  },
+  10: {
+    easy:      { chars: ['merlin', 'assassin', 'percival', 'morgana', 'mordred'], abilities: [] },
+    advanced:  { chars: ['merlin', 'assassin', 'percival', 'tristanIsolde', 'morgana', 'mordred', 'oberon', 'mark'], abilities: ['lotl'] },
+    veteran:   { chars: ['merlin', 'assassin', 'percival', 'lancelot', 'guinevere', 'morgana', 'mordred', 'oberon'], abilities: ['lotl', 'excalibur'] },
+    legendary: { chars: ['merlin', 'assassin', 'percival', 'lancelot', 'guinevere', 'tristanIsolde', 'morgana', 'mordred', 'mark'], abilities: ['lotl', 'excalibur'] },
+  },
+}
 
 // ── Quest discussion time: base proportions for allotting time across quests ──
 // Sum = 2250. Used as ratio weights, not absolute seconds.
@@ -131,6 +161,9 @@ module.exports = {
   CHAR_DESC,
   SPEED_ORDER,
   SPEED_LABELS,
+  COMPLEXITY_ORDER,
+  COMPLEXITY_LABELS,
+  COMPLEXITY_PRESETS,
   QUEST_ALLOTTED_BASE,
   QUEST_ALLOTTED_LOTL,
   QUEST_ALLOTTED_SUM,
