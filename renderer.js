@@ -55,7 +55,6 @@ const THEME = (() => {
     evilFill:   v('--evil-fill'),
     evilEdge:   v('--evil-edge'),
     evilText:   v('--evil-txt'),
-    evilCircText: v('--evil-circ'),
     warn:       v('--warn'),
   }
 })()
@@ -997,10 +996,11 @@ function newGame(players = settings.players) {
     questPhaseOffset: 0,
     panelOpen:        false,
     lotlPromptActive: false,
-    // Lancelot's Loyalty deck: 3 "No Change" + 2 "Switch", drawn without
+    // Lancelot's Loyalty deck: 3 "No Change" + 2 "Swap", drawn without
     // replacement at the start of Q3/Q4/Q5. Reset fresh each game.
-    lancelotDeck:     shuffled(['switch', 'switch', 'none', 'none', 'none']),
+    lancelotDeck:     shuffled(['swap', 'swap', 'none', 'none', 'none']),
     lancelotHistory:  [],   // drawn card types so far, in draw order (left to right)
+    lancelotHoldQuestEnlarge: false,   // see resolveQuest/renderQuests
   }
 }
 
@@ -1167,6 +1167,47 @@ function paintArc(i, state, size, opts = {}) {
   if (inner) drawArc(inner, state, size, opts, 'inner')
 }
 
+function lerpHexColor(hexA, hexB, t) {
+  const a = parseInt(hexA.slice(1), 16), b = parseInt(hexB.slice(1), 16)
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255
+  const r = Math.round(ar + (br - ar) * t)
+  const g = Math.round(ag + (bg - ag) * t)
+  const bl = Math.round(ab + (bb - ab) * t)
+  return `rgb(${r}, ${g}, ${bl})`
+}
+
+const HOLE_FILL_FADE_MS = 450
+
+// Which quest indices currently have a hole-fill fade (below) running —
+// renderQuests checks this to skip its normal instant hole redraw for the
+// length of the fade, so a render() firing mid-fade doesn't cut it short.
+const _holeFillAnimating = new Set()
+
+// Canvas pixels can't be CSS-transitioned (same reason the donut edges live
+// on a separate SVG overlay instead — see the note in drawArc), so this
+// hand-rolls the equivalent for a quest's inner hole: redraws just that
+// circle every frame, interpolating from --coin (its color in every
+// non-resolved state) to the resolved success/fail fill.
+function fadeHoleFill(i, toColor) {
+  const inner = document.getElementById(`arcin-${i}`)
+  if (!inner) return
+  const ctx = inner.getContext('2d')
+  const fromColor = THEME.coin
+  _holeFillAnimating.add(i)
+  const start = performance.now()
+  function step(now) {
+    const t = Math.min((now - start) / HOLE_FILL_FADE_MS, 1)
+    ctx.beginPath()
+    ctx.arc(ARC_CX, ARC_CY, ARC_HOLE, 0, TAU)
+    ctx.fillStyle = lerpHexColor(fromColor, toColor, t)
+    ctx.fill()
+    if (t < 1) requestAnimationFrame(step)
+    else _holeFillAnimating.delete(i)
+  }
+  requestAnimationFrame(step)
+}
+
 // Toggle a state class (overtime/warning/locking/…) on both of a quest's canvases
 // so the whole coin reacts as one.
 function toggleArcClass(i, cls, on) {
@@ -1181,6 +1222,9 @@ function toggleArcClass(i, cls, on) {
 // texture mid-rotation.
 function redrawActiveArc() {
   if (gs.successCount >= 3 || gs.failCount >= 3) return
+  // Circle stays dimmed/pending (renderQuests already painted it that way)
+  // until Lancelot's loyalty-flip spotlight finishes — see resolveQuest.
+  if (gs.lancelotHoldQuestEnlarge) return
   const i    = gs.currentQuest
   const base = document.getElementById(`arc-${i}`)
   if (!base) return
@@ -1214,12 +1258,13 @@ function updateArcNum(i, playerCount, state) {
   const el = document.getElementById(`arcnum-${i}`)
   if (!el) return
   el.textContent = String(playerCount)
-  const color = state === 'resolved-success' ? THEME.goodText
-              : state === 'resolved-fail'    ? THEME.evilCircText
-              : state === 'pending'          ? THEME.dim
-              : THEME.cream
+  // Resolved quests no longer recolor the number to blue/red — it snapped
+  // instantly while the hole's own fill now eases in over ~450ms (see
+  // fadeHoleFill), and the mismatched pacing read as off. Trying it with
+  // the number just staying cream through resolution instead.
+  const color = state === 'pending' ? THEME.dim : THEME.cream
   el.style.color = color
-  // Lady-of-the-Lake teardrop + Lancelot switch badge track the number's colour exactly
+  // Lady-of-the-Lake teardrop + Lancelot swap badge track the number's colour exactly
   const drop = document.getElementById(`lotl-badge-${i}`)
   if (drop) drop.style.color = color
   const lance = document.getElementById(`lancelot-badge-${i}`)
@@ -1289,7 +1334,7 @@ function buildStaticDOM() {
         '<path d="M12 1 C12 1 4 12 4 20 A8 8 0 1 0 20 20 C20 12 12 1 12 1 Z"/></svg>'
       front.append(badge)
 
-      // Lancelot switch badge — same hole, same spot when LotL is off; stacks
+      // Lancelot swap badge — same hole, same spot when LotL is off; stacks
       // above the teardrop (via CSS) when both are on.
       const lanceBadge = document.createElement('div')
       lanceBadge.className = 'lancelot-badge'
@@ -2823,9 +2868,16 @@ function renderQuests() {
     const wrap    = document.getElementById(`qw-${i}`)
     const res     = gs.results[i]
     const isCurr  = (i === gs.currentQuest) && gs.phase === 'game' && gs.successCount < 3 && gs.failCount < 3
-    wrap.classList.toggle('current', isCurr)
+    // Lancelot's loyalty-flip spotlight (see resolveQuest/triggerLancelotFlip)
+    // holds the new quest circle at its dimmed/pending look — no enlarge, no
+    // active coloring — until it's finished, so the two don't compete for
+    // attention. Voting/timers keep running underneath regardless (gs.voting,
+    // gs.voteCount, the per-second tick); only this circle's own appearance
+    // waits, via showActive below rather than touching isCurr itself.
+    const showActive = isCurr && !gs.lancelotHoldQuestEnlarge
+    wrap.classList.toggle('current', showActive)
     // Pending = neither resolved nor active; its donut edges (and hole rim) are stone.
-    wrap.classList.toggle('q-pending', !gs.results[i] && !isCurr)
+    wrap.classList.toggle('q-pending', !gs.results[i] && !showActive)
     const size    = gs.questSizes[i]
     const cardRef = questCardRef(size)
 
@@ -2834,6 +2886,7 @@ function renderQuests() {
       if (!wrap.classList.contains('locked') && !wrap.classList.contains('locking')) {
         wrap.classList.add('locking')
         toggleArcClass(i, 'locking', true)
+        fadeHoleFill(i, res === 'success' ? THEME.goodFill : THEME.evilFill)
         setTimeout(() => {
           wrap.classList.remove('locking')
           toggleArcClass(i, 'locking', false)
@@ -2842,14 +2895,20 @@ function renderQuests() {
       }
       toggleArcClass(i, 'overtime', false)
       toggleArcClass(i, 'warning',  false)
-      paintArc(i, state, size, {
+      const base  = document.getElementById(`arc-${i}`)
+      const inner = document.getElementById(`arcin-${i}`)
+      const arcOpts = {
         votingElapsed: gs.questVotingFrozen[i],
         votingRef:     gs.questAllotted[i],
         cardElapsed:   gs.questTimes[i],
         cardRef,
-      })
+      }
+      if (base) drawArc(base, state, size, arcOpts, 'outer')
+      // Skip the inner hole's normal instant redraw while fadeHoleFill owns
+      // it — this render() may well fire again before the fade finishes.
+      if (inner && !_holeFillAnimating.has(i)) drawArc(inner, state, size, arcOpts, 'inner')
       updateArcNum(i, size, state)
-    } else if (isCurr) {
+    } else if (showActive) {
       wrap.classList.remove('locked')
       if (gs.voting) {
         paintArc(i, 'voting', size, {
@@ -2972,7 +3031,7 @@ function dismissLotlPrompt() {
 // ── Lancelot loyalty flip ────────────────────────────────────────────────────
 // Shown under the quest circles AND the vote dots/hint — see #lancelot-deck.
 // "Remaining cards" tracks what's left of the Loyalty deck (starts 3 No
-// Change + 2 Switch). All 3 possible draws (Q3/Q4/Q5) show as face-down slots
+// Change + 2 Swap). All 3 possible draws (Q3/Q4/Q5) show as face-down slots
 // from the start of the game; each flips in place — same rotateY 3D-flip
 // technique as the quest circles' Lady-of-the-Lake coin flip — once its draw
 // happens, just before the LotL reminder (see the scheduling in
@@ -2993,17 +3052,26 @@ function makeLancelotSlot(i) {
 function setLancelotBack(el, type) {
   if (!el) return
   el.dataset.type = type
-  // The switch arrow is stretched taller via an inner span so the card face
-  // itself (border, flip transform) stays undistorted.
-  el.innerHTML = type === 'switch' ? '<span class="lc-arrow-stretch">⇄</span>' : '✕'
+  // Two separate arrow glyphs stacked, each solid-colored, rather than one
+  // ⇄ character split with a background-clip gradient — the gradient's
+  // straight 50% line cut through the arrowheads unevenly (they're not
+  // symmetric around the glyph's vertical center), tinting bits of each
+  // arrowhead the wrong color. Two plain arrows sidesteps that entirely.
+  el.innerHTML = type === 'swap'
+    ? '<span class="lc-swap-symbol"><span class="lc-swap-arrow lc-swap-arrow-top">→</span><span class="lc-swap-arrow lc-swap-arrow-bottom">←</span></span>'
+    : '✕'
 }
 
 function updateLancelotRemainingText() {
   const el = document.getElementById('lancelot-remaining')
   if (!el) return
-  const noneCount   = gs.lancelotDeck.filter(c => c === 'none').length
-  const switchCount = gs.lancelotDeck.filter(c => c === 'switch').length
-  el.textContent = `Remaining cards: ${noneCount} No Change, ${switchCount} Switch`
+  const noneCount = gs.lancelotDeck.filter(c => c === 'none').length
+  const swapCount = gs.lancelotDeck.filter(c => c === 'swap').length
+  el.innerHTML = `
+    <div class="lc-remaining-title">Remaining cards:</div>
+    <div class="lc-remaining-row">${swapCount} × (swap loyalty)</div>
+    <div class="lc-remaining-row">${noneCount} × (no change)</div>
+  `
 }
 
 // Rebuilds the "remaining" text and makes sure every already-drawn slot (per
@@ -3035,24 +3103,74 @@ function renderLancelotDeck() {
   }
 }
 
-const LANCELOT_REVEAL_HOLD_MS = 800  // roughly matches the flip's 0.75s transition
+const LANCELOT_TRIGGER_DELAY_MS    = 1000 // delay from "Quest N begins" render to the deck starting its zoom-in (resolveQuest's setTimeout)
+const LANCELOT_SPOTLIGHT_IN_MS     = 1000 // zoom-in duration — matches #lancelot-deck.lc-spotlight's own transition (index.html); slower than the zoom-out on purpose
+const LANCELOT_PRE_FLIP_PAUSE_MS   = 3000 // held centered/enlarged, un-flipped, once the zoom-in lands, before the card flips
+const LANCELOT_POST_FLIP_PAUSE_MS  = 2000 // held centered/enlarged, flipped, before the deck zooms back out
+const LANCELOT_SPOTLIGHT_OUT_MS    = 700  // zoom-out duration — matches #lancelot-deck's base transition (index.html)
+const LANCELOT_SPOTLIGHT_Y_OFFSET  = 80   // px above dead-center #quest-area lands at — purely aesthetic, no functional reason for this exact number
 
-// Draws the next Loyalty card (no replacement), flips the next slot to reveal
-// it, and updates the remaining-cards text. Calls onDone once the flip has had
-// a moment to land — used to chain into the LotL reminder right after.
+// Slides #lancelot-deck to the centre of #quest-area (a bit above dead-center,
+// see LANCELOT_SPOTLIGHT_Y_OFFSET) and scales it up (see .lc-spotlight /
+// #lancelot-spotlight-backdrop in index.html), so the Q3/Q4/Q5 loyalty flip
+// below reads as a spotlighted reveal instead of a small change tucked under
+// the quest circles. --lc-dx/--lc-dy are recomputed from the deck's live
+// position every time this turns on, rather than a fixed CSS value, since
+// that position shifts with viewport size and whether the character panel is
+// expanded.
+function setLancelotSpotlight(on) {
+  const deck     = document.getElementById('lancelot-deck')
+  const backdrop = document.getElementById('lancelot-spotlight-backdrop')
+  const area     = document.getElementById('quest-area')
+  if (!deck || !area) return
+  if (on) {
+    const d = deck.getBoundingClientRect()
+    const a = area.getBoundingClientRect()
+    deck.style.setProperty('--lc-dx', `${(a.left + a.width / 2) - (d.left + d.width / 2)}px`)
+    deck.style.setProperty('--lc-dy', `${(a.top + a.height / 2) - (d.top + d.height / 2) - LANCELOT_SPOTLIGHT_Y_OFFSET}px`)
+  }
+  deck.classList.toggle('lc-spotlight', on)
+  if (backdrop) backdrop.classList.toggle('visible', on)
+}
+
+// Draws the next Loyalty card (no replacement), spotlighting the deck to the
+// board's centre, flipping the next slot to reveal the card, then returning
+// the deck to its normal spot and updating the remaining-cards text. Calls
+// onDone once it has settled back into place — used to chain into the LotL
+// reminder right after.
 function triggerLancelotFlip(qi, onDone) {
   if (gs.phase !== 'game' || gs.currentQuest !== qi) return  // game moved on
-  const card       = gs.lancelotDeck.length ? gs.lancelotDeck.pop() : 'none'
-  const slotIndex  = gs.lancelotHistory.length
-  gs.lancelotHistory.push(card)
-  logEvent(card === 'switch' ? 'Lancelot switched' : 'Lancelot: no change')
+  setLancelotSpotlight(true)
 
-  updateLancelotRemainingText()
-  const flipper = document.getElementById(`lancelot-flipper-${slotIndex}`)
-  setLancelotBack(document.getElementById(`lancelot-back-${slotIndex}`), card)
-  if (flipper) flipper.classList.add('flipped')
+  setTimeout(() => {
+    if (gs.phase !== 'game' || gs.currentQuest !== qi) { setLancelotSpotlight(false); return }
 
-  setTimeout(() => { if (onDone) onDone() }, LANCELOT_REVEAL_HOLD_MS)
+    setTimeout(() => {
+      if (gs.phase !== 'game' || gs.currentQuest !== qi) { setLancelotSpotlight(false); return }
+
+      const slotIndex = gs.lancelotHistory.length
+      const card      = gs.lancelotDeck.length ? gs.lancelotDeck.pop() : 'none'
+      gs.lancelotHistory.push(card)
+      logEvent(card === 'swap' ? 'Lancelot swapped' : 'Lancelot: no change')
+
+      updateLancelotRemainingText()
+      const flipper = document.getElementById(`lancelot-flipper-${slotIndex}`)
+      setLancelotBack(document.getElementById(`lancelot-back-${slotIndex}`), card)
+      if (flipper) flipper.classList.add('flipped')
+
+      setTimeout(() => {
+        setLancelotSpotlight(false)
+        setTimeout(() => {
+          // The animation has fully played out and the deck has settled back
+          // into place — release the quest circle's enlarge (see
+          // resolveQuest/renderQuests) now that it won't compete with it.
+          gs.lancelotHoldQuestEnlarge = false
+          render()
+          if (onDone) onDone()
+        }, LANCELOT_SPOTLIGHT_OUT_MS)
+      }, LANCELOT_POST_FLIP_PAUSE_MS)
+    }, LANCELOT_PRE_FLIP_PAUSE_MS)
+  }, LANCELOT_SPOTLIGHT_IN_MS)
 }
 
 function renderVoteTrack() {
@@ -3992,6 +4110,11 @@ function resolveQuest(result) {
                     : 'After 2nd fail'
   music.playPreloaded(_slot, { oneShot: true, nextFolder: _nextRound, fallbackFolder: _fallback })
   logEvent(`Quest ${gs.currentQuest + 1} begins`)
+  // Hold the new quest circle's enlarge (see renderQuests) until Lancelot's
+  // loyalty flip below has fully played out, so the two don't compete for
+  // attention — voting/timers/arc mode are unaffected, this only withholds
+  // the "current" scale-up visual. False (a no-op) whenever Lancelot's off.
+  gs.lancelotHoldQuestEnlarge = gs.currentQuest >= 2 && settings.characters.lancelot
   render()
 
   // Quests 3/4/5 (index 2/3/4): Lancelot's loyalty flip (if in play) resolves
@@ -3999,7 +4122,7 @@ function resolveQuest(result) {
   if (gs.currentQuest >= 2) {
     const qi = gs.currentQuest
     const showLotl = () => { if (settings.abilities.lotl) scheduleLotlPrompt(qi) }
-    if (settings.characters.lancelot) setTimeout(() => triggerLancelotFlip(qi, showLotl), 1000)
+    if (settings.characters.lancelot) setTimeout(() => triggerLancelotFlip(qi, showLotl), LANCELOT_TRIGGER_DELAY_MS)
     else showLotl()
   }
 }

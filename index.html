@@ -47,7 +47,6 @@
       --evil-fill:   #801428;   /* fail fill, evil-role backgrounds */
       --evil-edge:   #a82040;   /* fail ring edge */
       --evil-txt:    #c83838;   /* fail & evil-role text (on dark bg) */
-      --evil-circ:   #e07880;   /* evil text on circle fill — keeps contrast on red bg */
 
       /* ── Warning ─────────────────────────────────────────────────────────── */
       --warn:        #d81818;   /* timer / clock overtime alert */
@@ -256,11 +255,10 @@
     #quest-area.assn-pushed #quests {
       transform: translateY(132px);   /* ~60% of the former 220px push */
     }
-    /* Lancelot deck rides along with the same push, so it stays put relative
-       to the quest circles instead of getting left behind above them. */
-    #quest-area.assn-pushed #lancelot-deck {
-      transform: translateY(132px);
-    }
+    /* #lancelot-deck no longer needs to ride along with this push — it now
+       lives independently pinned to #quest-area's top-right corner (see
+       #lancelot-deck below) rather than stacked below the quest circles, so
+       there's nothing left for it to stay attached to here. */
 
     /* Arc positioning wrapper — transform lives here, not on the animated .q-wrap */
     .q-arc-slot { display: flex; }
@@ -387,7 +385,7 @@
     /* Flat fill tracking the number's colour (set on the badge in updateArcNum) */
     .lotl-drop-svg path { fill: currentColor; }
 
-    /* Lancelot's "switch" badge — same hole as the LotL teardrop, hidden unless
+    /* Lancelot's "swap" badge — same hole as the LotL teardrop, hidden unless
        Lancelot is on. Sits in the exact same spot when LotL is off; when both
        are on, the two stack (Lancelot above, LotL below — see the compound
        selectors below). */
@@ -495,29 +493,122 @@
     }
 
     /* ─── LANCELOT LOYALTY DECK ──────────────────────────── */
-    /* Sits under the quest circles AND the vote dots/hint text, above the
-       fixed-bottom quote scroll. "Remaining cards" tracks what's left in the
-       Loyalty deck (starts 3 No Change + 2 Switch); a history row keeps every
-       draw so far, left to right (up to 3 by Q5), each in a portrait card. */
-    /* display:none (not just opacity) when hidden, so it doesn't reserve flex
-       gap space in #quest-area for games where Lancelot isn't in play. */
+    /* "Remaining cards" tracks what's left in the Loyalty deck (starts 3 No
+       Change + 2 Swap); a history row keeps every draw so far, left to
+       right (up to 3 by Q5), each in a portrait card. */
+    /* display:none (not just opacity/visibility) when hidden, simply so it
+       doesn't sit in the DOM taking up screen space for games where
+       Lancelot isn't in play — position:absolute already keeps it out of
+       #center-col's flex flow regardless. */
+    /* Pinned to #center-col's top-right corner (not the viewport's) so it
+       automatically clears #char-panel, which is a separate flex sibling of
+       #center-col rather than something inside it — the same reason the
+       spotlight centers on #quest-area instead of the full window. Anchored
+       to #center-col rather than #quest-area specifically so top: measures
+       from right under the timer bar (matching the 24px on the right, down
+       against the sidebar) rather than from #quest-area's own top edge,
+       which sits well below the phase-status heading. */
     #lancelot-deck {
+      position: absolute;
+      top: 24px;
+      right: 24px;
       display: none;
       flex-direction: column;
       align-items: center;
       gap: 10px;
+      padding: 14px 20px;
+      /* No border — the panel reads as its own surface from the background
+         fill alone. Diagonal, desaturated blue/red — muted versions of
+         --good-fill and --evil-fill (the two teams Lancelot might belong to)
+         rather than a plain neutral, but kept quiet/low-saturation on
+         purpose since this sits in a corner and isn't meant to compete for
+         attention with anything actually happening on the board. Solid
+         colour attempts (including one deliberately between --coin, the
+         card faces, and --dim/--accent-dim, used for text inside this very
+         block) still read as too close to the card faces to tell apart.
+         Explicit stops keep the two colours mostly solid, with the actual
+         blend compressed into a narrow band around the middle, rather than
+         fading across the whole diagonal. */
+      border-radius: 4px;
+      background: linear-gradient(135deg, #1a2850 0%, #1a2850 40%, #4c1620 60%, #4c1620 100%);
       pointer-events: none;
-      transition: transform 0.7s ease;   /* matches #quests' push transition */
+      transition: transform 0.7s ease;   /* matches the spotlight's own zoom-out (see .lc-spotlight) */
     }
     #lancelot-deck.visible { display: flex; }
 
+    /* Q3/Q4/Q5 loyalty reveal: the whole deck (remaining-count text + history
+       row) enlarges and slides to the centre of the board while
+       #lancelot-spotlight-backdrop dims everything behind it, so the flip
+       that follows (triggerLancelotFlip in renderer.js) reads as a
+       spotlighted reveal instead of a small change tucked under the quest
+       circles. --lc-dx/--lc-dy are set from the deck's live position each
+       time (renderer.js) since it shifts with viewport size and whether the
+       character panel is expanded.
+
+       Zoom in is deliberately slower than zoom out: adding the .lc-spotlight
+       class (more specific than the bare #lancelot-deck rule below) applies
+       ITS OWN 1s transition while present; removing the class falls back to
+       #lancelot-deck's plain 0.7s rule, which also serves the (mutually
+       exclusive — spotlight only during gs.phase 'game', assn-pushed only
+       during 'assassination'/'win') assn-pushed push, so that one stays
+       synced with #quests' own 0.7s push regardless of this. Must match
+       LANCELOT_SPOTLIGHT_IN_MS/OUT_MS in renderer.js. */
+    #lancelot-deck.lc-spotlight {
+      transform: translate(var(--lc-dx, 0px), var(--lc-dy, 0px)) scale(2.2);
+      transition: transform 1s ease;
+      z-index: 1;
+    }
+
+    /* Dimmed backdrop behind the enlarged, centred deck during the reveal
+       above — sits right before #lancelot-deck in DOM order and below it in
+       z-index, so it dims the quest circles/vote track/hint behind it while
+       leaving the deck itself untouched. Scoped to #quest-area rather than
+       the full window: simpler to stay inside the board's own clipping box,
+       and the board is most of the screen anyway. Fade in/out durations
+       mirror the deck's own zoom in/out (see above) the same asymmetric way:
+       .visible's own transition governs fade-in, the base rule governs
+       fade-out once .visible is removed. */
+    #lancelot-spotlight-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: rgba(8, 12, 5, 0.75);   /* same dim family as #quit-modal */
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.7s ease;   /* fade-out — matches #lancelot-deck's zoom-out */
+    }
+    #lancelot-spotlight-backdrop.visible {
+      opacity: 1;
+      transition: opacity 1s ease;   /* fade-in — matches #lancelot-deck's zoom-in */
+    }
+
+    /* Deck-level title, sitting above the history row — not to be confused
+       with .lc-remaining-title (the smaller "Remaining cards:" label below). */
+    .lc-deck-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted-gold);
+      text-align: center;
+    }
+
+    /* Three-row readout: a title row, then one row per remaining card type
+       (swap listed first — the more consequential of the two — then no
+       change), each as "N × (label)". */
     .lc-remaining {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--dim);
+      text-align: center;
     }
+    .lc-remaining-title { color: var(--muted-gold); }
+    .lc-remaining-row   { color: var(--muted-gold); }
 
     .lc-history {
       display: flex;
@@ -560,9 +651,15 @@
       text-align: center;
     }
 
+    /* Border colour is left to inherit .lc-card-face's border: 1px solid
+       var(--stone) — that's the same colour as the quest circles' own
+       outermost ring (the card-play timer's frame lines, see drawArc's
+       "Outer ring border lines"), which is what this is meant to match; no
+       override needed since it's already the shared default. */
     .lc-card-front {
       color: var(--dim);
       font-size: 20px;
+      background: var(--bg0);   /* same dark as the main game area, not the raised-panel --bg1 it inherits from .lc-card-face */
     }
 
     .lc-card-back {
@@ -570,10 +667,25 @@
       transform: rotateY(180deg);
       color: var(--accent);
       font-size: 32px;
+      border-color: var(--accent-dim);   /* same colour as the donut timer's rings (.q-donut) */
     }
-    /* Stretch just the glyph, not the card face itself (which still needs its
-       own rotateY for the flip and shouldn't get visually distorted). */
-    .lc-arrow-stretch { display: inline-block; transform: scaleY(1.6); }
+    /* Swap reveal: two plain arrows stacked (not the single ⇄ glyph), each
+       solid-colored good-blue/evil-red. An earlier version used one ⇄
+       character with a background-clip gradient split at 50% height, like
+       Lancelot's name in the Characters menu (.lc-half-color) — but ⇄'s
+       arrowheads aren't symmetric around the glyph's vertical center, so
+       the dead-straight gradient line cut across them unevenly and tinted
+       parts of each arrowhead the wrong color. Two separate glyphs, each
+       uniformly colored, has no such seam to misalign. */
+    .lc-swap-symbol {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      line-height: 0.4;   /* "very tight" — picked from the spacing mockup */
+    }
+    .lc-swap-arrow     { display: block; font-size: 26px; }
+    .lc-swap-arrow-top    { color: var(--good-fill); }   /* same fill as a resolved-success quest circle's hole */
+    .lc-swap-arrow-bottom { color: var(--evil-fill); }   /* same fill as a resolved-fail quest circle's hole */
 
     /* ─── VOTE TRACK ─────────────────────────────────────── */
 
@@ -1170,11 +1282,6 @@
       25%  { transform: scale(1.22); opacity: 1;    }
       100% { transform: scale(0.88); opacity: 0.8; }
     }
-    @keyframes lock-in-flash {
-      0%   { filter: brightness(1);   }
-      25%  { filter: brightness(1.8); }
-      100% { filter: brightness(1);   }
-    }
     @keyframes vote-lock-scale {
       0%   { transform: scale(1.08); }
       30%  { transform: scale(1.18); }
@@ -1219,7 +1326,12 @@
     .arc.warning         { animation: warning-pulse   1s    ease-in-out infinite; }
     .arc.overtime        { animation: overtime-pulse  0.9s  ease-in-out infinite; }
     .q-wrap.locking      { animation: lock-in-scale   0.85s ease-out forwards; }
-    .arc.locking         { animation: lock-in-flash   0.85s ease-out forwards; }
+    /* The arc canvases used to also flash brighter here (a removed
+       lock-in-flash animation on .arc.locking) as a quest's blue/red
+       resolved fill appeared — replaced by fadeHoleFill's smooth colour
+       interpolation (renderer.js) instead. Scale pop above stays; JS still
+       toggles the .locking class on the arc canvases too (see
+       renderQuests), it just has no CSS effect there now. */
     .q-wrap.locked       { opacity: 0.8; }
     .q-wrap.vote-locking { animation: vote-lock-scale 0.6s  ease-out forwards; }
     .arc.vote-locking    { animation: vote-lock-flash  0.6s  ease-out forwards; }
@@ -2083,10 +2195,18 @@
         </div>
         <div id="hint"></div>
       </div>
-      <div id="lancelot-deck">
-        <div class="lc-history" id="lancelot-history"></div>
-        <div class="lc-remaining" id="lancelot-remaining"></div>
-      </div>
+      <div id="lancelot-spotlight-backdrop"></div>
+    </div>
+    <!-- Direct child of #center-col (not #quest-area) so its top:/right:
+         insets measure from right under the timer bar and against the
+         sidebar, rather than from #quest-area's own top edge, which sits
+         well below the phase-status heading. Must still come after
+         #quest-area in the DOM so it paints above #lancelot-spotlight-backdrop
+         (see .lc-spotlight in the CSS) despite living one level shallower. -->
+    <div id="lancelot-deck">
+      <div class="lc-deck-title">Lancelot loyalty deck</div>
+      <div class="lc-history" id="lancelot-history"></div>
+      <div class="lc-remaining" id="lancelot-remaining"></div>
     </div>
     </div><!-- #center-col -->
 
